@@ -227,6 +227,110 @@ as $$
     );
 $$;
 
+create or replace function public.add_room_host_as_member()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_display_name text;
+begin
+    select coalesce(nullif(trim(p.display_name), ''), 'Host')
+    into v_display_name
+    from public.profiles p
+    where p.id = new.host_user_id;
+
+    insert into public.room_members (room_id, user_id, display_name)
+    values (new.id, new.host_user_id, coalesce(v_display_name, 'Host'))
+    on conflict (room_id, user_id) do nothing;
+
+    return new;
+end;
+$$;
+
+drop trigger if exists trg_order_rooms_add_host_member on public.order_rooms;
+create trigger trg_order_rooms_add_host_member
+after insert on public.order_rooms
+for each row execute function public.add_room_host_as_member();
+
+create or replace function public.join_room_by_code(p_room_code text)
+returns table (
+    room_id uuid,
+    title text,
+    status text,
+    joined_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+#variable_conflict use_column
+declare
+    v_user_id uuid;
+    v_display_name text;
+    v_normalized_code text;
+    v_room record;
+    v_joined_at timestamptz;
+begin
+    v_user_id := auth.uid();
+    if v_user_id is null then
+        raise exception 'Authentication required to join a room'
+            using errcode = '42501';
+    end if;
+
+    select coalesce(nullif(trim(p.display_name), ''), 'Pelanggan')
+    into v_display_name
+    from public.profiles p
+    where p.id = v_user_id;
+
+    if not found then
+        raise exception 'Authenticated user profile not found'
+            using errcode = '42501';
+    end if;
+
+    v_normalized_code := upper(trim(coalesce(p_room_code, '')));
+    if char_length(v_normalized_code) < 4 or char_length(v_normalized_code) > 16 then
+        raise exception 'Invalid or unavailable room code'
+            using errcode = 'P0001';
+    end if;
+
+    select r.id, r.title, r.status
+    into v_room
+    from public.order_rooms r
+    where upper(trim(r.room_code)) = v_normalized_code
+    limit 1;
+
+    if not found then
+        raise exception 'Invalid or unavailable room code'
+            using errcode = 'P0001';
+    end if;
+
+    if v_room.status = 'locked' then
+        raise exception 'Room is locked and no longer accepting members'
+            using errcode = 'P0001';
+    end if;
+
+    if v_room.status <> 'open' then
+        raise exception 'Room is no longer available'
+            using errcode = 'P0001';
+    end if;
+
+    insert into public.room_members (room_id, user_id, display_name)
+    values (v_room.id, v_user_id, v_display_name)
+    on conflict (room_id, user_id) do nothing;
+
+    select m.joined_at
+    into v_joined_at
+    from public.room_members m
+    where m.room_id = v_room.id
+      and m.user_id = v_user_id;
+
+    return query
+    select v_room.id, v_room.title, v_room.status, v_joined_at;
+end;
+$$;
+
 alter table public.order_rooms enable row level security;
 alter table public.room_members enable row level security;
 
@@ -235,7 +339,11 @@ create policy "order_rooms_member_or_staff_read"
 on public.order_rooms
 for select
 to authenticated
-using (public.is_room_member(id) or public.is_staff() or status = 'open');
+using (
+    host_user_id = auth.uid()
+    or public.is_room_member(id)
+    or public.is_staff()
+);
 
 drop policy if exists "order_rooms_host_insert" on public.order_rooms;
 create policy "order_rooms_host_insert"
@@ -260,19 +368,6 @@ to authenticated
 using (public.is_room_member(room_id) or public.is_staff());
 
 drop policy if exists "room_members_self_join" on public.room_members;
-create policy "room_members_self_join"
-on public.room_members
-for insert
-to authenticated
-with check (
-    user_id = auth.uid()
-    and exists (
-        select 1
-        from public.order_rooms r
-        where r.id = room_id
-          and r.status = 'open'
-    )
-);
 
 -- 6. Feature 04: Orders & Live Brew Tracker
 create table if not exists public.orders (
@@ -546,7 +641,8 @@ grant select on public.menu_items, public.menu_options, public.reward_catalog to
 grant select, update on public.profiles to authenticated;
 grant select, insert, update, delete on public.menu_items, public.menu_options, public.reward_catalog to authenticated;
 grant select, insert, update on public.order_rooms to authenticated;
-grant select, insert on public.room_members to authenticated;
+revoke insert, update, delete on public.room_members from anon, authenticated;
+grant select on public.room_members to authenticated;
 grant select, insert, update on public.orders to authenticated;
 grant select, insert on public.order_items to authenticated;
 grant select on public.order_status_history to authenticated;
@@ -554,4 +650,7 @@ grant select on public.reward_transactions to authenticated;
 
 grant execute on function public.is_staff() to anon, authenticated;
 grant execute on function public.is_room_member(uuid) to authenticated;
+revoke all on function public.add_room_host_as_member() from public, anon, authenticated;
+revoke all on function public.join_room_by_code(text) from public, anon;
+grant execute on function public.join_room_by_code(text) to authenticated;
 
