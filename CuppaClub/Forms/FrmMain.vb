@@ -7,105 +7,67 @@ Imports CuppaClub.Core
 Imports CuppaClub.Forms
 Imports CuppaClub.Services
 
-Public Class MainForm
+Public Class FrmMain
     Inherits Form
 
     Private ReadOnly _authService As New AuthService()
     Private ReadOnly _navItems As New List(Of SidebarNavItem)()
 
-    Private ReadOnly _sidebarPanel As New Panel()
-    Private ReadOnly _navHost As New FlowLayoutPanel()
-    Private ReadOnly _headerPanel As New Panel()
-    Private ReadOnly _headerTitleLabel As New Label()
-    Private ReadOnly _headerSubtitleLabel As New Label()
-    Private ReadOnly _headerConnectionBtn As New Button()
-    Private ReadOnly _contentHost As New Panel()
-
-    Private ReadOnly _sidebarConnBtn As New Button()
-    Private ReadOnly _accountNameLabel As New Label()
-    Private ReadOnly _accountRoleLabel As New Label()
-    Private ReadOnly _accountActionBtn As New Button()
-
     Private _activeFeature As FeatureDefinition
     Private _activeView As UserControl
+    Private _runtimeInitialized As Boolean
 
     Public Sub New()
-        Text = "CuppaClub - Desktop Cafe App"
-        ClientSize = New Size(1200, 760)
-        MinimumSize = New Size(1024, 680)
-        StartPosition = FormStartPosition.CenterScreen
-        BackColor = AppTheme.CanvasCream
-        ForeColor = AppTheme.TextPrimary
-        Font = AppTheme.FontBody
-        DoubleBuffered = True
+        InitializeComponent()
 
-        BuildShell()
+        If LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then
+            Return
+        End If
+
+        _runtimeInitialized = True
+        WireRuntimeBehavior()
 
         AddHandler AppSession.SessionChanged, AddressOf OnSessionChanged
         AddHandler SupabaseClientProvider.ConfigurationChanged, AddressOf OnConfigurationChanged
 
         RefreshAccountUi()
-        RefreshConnectionUi()
 
         If FeatureRegistry.Features.Count > 0 Then
             SelectFeature(FeatureRegistry.Features(0))
         End If
     End Sub
 
-    Private Sub BuildShell()
-        _sidebarPanel.Dock = DockStyle.Left
-        _sidebarPanel.Width = 256
-        _sidebarPanel.BackColor = AppTheme.SidebarOat
+    Private Sub WireRuntimeBehavior()
         AddHandler _sidebarPanel.Paint, AddressOf OnSidebarPaint
+        AddHandler _brandPanel.Paint, AddressOf OnBrandPanelPaint
+        AddHandler _bottomUtilityPanel.Paint, Sub(s, e)
+                                                   Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
+                                                       e.Graphics.DrawLine(pen, 14, 0, _bottomUtilityPanel.Width - 15, 0)
+                                                   End Using
+                                               End Sub
+        AddHandler _accountCard.Paint, Sub(s, e)
+                                            Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
+                                                e.Graphics.DrawRectangle(pen, 0, 0, _accountCard.Width - 1, _accountCard.Height - 1)
+                                            End Using
+                                        End Sub
+        AddHandler _headerPanel.Paint, Sub(s, e)
+                                            Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
+                                                e.Graphics.DrawLine(pen, 0, _headerPanel.Height - 1, _headerPanel.Width, _headerPanel.Height - 1)
+                                            End Using
+                                        End Sub
+        AddHandler _headerPanel.Resize, Sub()
+                                             _headerConnectionBtn.Location = New Point(_headerPanel.ClientSize.Width - _headerConnectionBtn.Width - 24, 22)
+                                         End Sub
 
-        Dim brandPanel As New Panel With {
-            .Dock = DockStyle.Top,
-            .Height = 82,
-            .BackColor = Color.Transparent,
-            .Padding = New Padding(18, 18, 16, 12)
-        }
-        AddHandler brandPanel.Paint, AddressOf OnBrandPanelPaint
-
-        Dim brandTitle As New Label With {
-            .Text = "CuppaClub",
-            .Font = AppTheme.FontBrand,
-            .ForeColor = AppTheme.TextPrimary,
-            .Location = New Point(64, 18),
-            .AutoSize = True
-        }
-
-        Dim brandSubtitle As New Label With {
-            .Text = "Sweet Cafe Desktop",
-            .Font = AppTheme.FontCaption,
-            .ForeColor = AppTheme.TextSecondary,
-            .Location = New Point(64, 44),
-            .AutoSize = True
-        }
-
-        brandPanel.Controls.Add(brandTitle)
-        brandPanel.Controls.Add(brandSubtitle)
-
-        Dim navSectionLabel As New Label With {
-            .Dock = DockStyle.Top,
-            .Text = "Fitur Utama",
-            .Font = AppTheme.FontCaptionBold,
-            .ForeColor = AppTheme.TextSecondary,
-            .Padding = New Padding(18, 10, 12, 6),
-            .Height = 32
-        }
-
-        _navHost.Dock = DockStyle.Fill
-        _navHost.FlowDirection = FlowDirection.TopDown
-        _navHost.WrapContents = False
-        _navHost.AutoScroll = True
-        _navHost.Padding = New Padding(12, 4, 12, 12)
-        _navHost.BackColor = Color.Transparent
+        AddHandler _sidebarConnBtn.Click, AddressOf OnOpenConfigClick
+        AddHandler _headerConnectionBtn.Click, AddressOf OnOpenConfigClick
+        AddHandler _accountActionBtn.Click, AddressOf OnAccountActionClick
 
         Dim tabIdx = 0
         For Each feature In FeatureRegistry.Features
             Dim navItem As New SidebarNavItem(feature) With {
-                .Width = 230,
-                .Height = 56,
+                .Width = 242,
+                .Height = 60,
                 .Margin = New Padding(0, 0, 0, 6),
                 .TabIndex = tabIdx
             }
@@ -115,116 +77,6 @@ Public Class MainForm
             _navItems.Add(navItem)
             _navHost.Controls.Add(navItem)
         Next
-
-        Dim bottomUtilityPanel As New Panel With {
-            .Dock = DockStyle.Bottom,
-            .Height = 168,
-            .BackColor = Color.Transparent,
-            .Padding = New Padding(14, 12, 14, 14)
-        }
-        AddHandler bottomUtilityPanel.Paint, Sub(s, e)
-                                                 Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                                     e.Graphics.DrawLine(pen, 14, 0, bottomUtilityPanel.Width - 15, 0)
-                                                 End Using
-                                             End Sub
-
-        _sidebarConnBtn.Location = New Point(14, 12)
-        _sidebarConnBtn.Size = New Size(228, 34)
-        _sidebarConnBtn.FlatStyle = FlatStyle.Flat
-        _sidebarConnBtn.Font = AppTheme.FontCaptionBold
-        _sidebarConnBtn.Cursor = Cursors.Hand
-        _sidebarConnBtn.TextAlign = ContentAlignment.MiddleLeft
-        _sidebarConnBtn.Padding = New Padding(10, 0, 10, 0)
-        _sidebarConnBtn.TabIndex = 10
-        AddHandler _sidebarConnBtn.Click, AddressOf OnOpenConfigClick
-
-        Dim accountCard As New Panel With {
-            .Location = New Point(14, 54),
-            .Size = New Size(228, 100),
-            .BackColor = AppTheme.SurfaceMilk,
-            .Padding = New Padding(12, 10, 12, 10)
-        }
-        AddHandler accountCard.Paint, Sub(s, e)
-                                          Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                              e.Graphics.DrawRectangle(pen, 0, 0, accountCard.Width - 1, accountCard.Height - 1)
-                                          End Using
-                                      End Sub
-
-        _accountNameLabel.Location = New Point(12, 10)
-        _accountNameLabel.Size = New Size(204, 22)
-        _accountNameLabel.Font = AppTheme.FontBodyBold
-        _accountNameLabel.ForeColor = AppTheme.TextPrimary
-        _accountNameLabel.AutoEllipsis = True
-
-        _accountRoleLabel.Location = New Point(12, 33)
-        _accountRoleLabel.Size = New Size(204, 18)
-        _accountRoleLabel.Font = AppTheme.FontCaption
-        _accountRoleLabel.ForeColor = AppTheme.TextSecondary
-        _accountRoleLabel.AutoEllipsis = True
-
-        _accountActionBtn.Location = New Point(12, 58)
-        _accountActionBtn.Size = New Size(204, 30)
-        _accountActionBtn.TabIndex = 11
-        AddHandler _accountActionBtn.Click, AddressOf OnAccountActionClick
-
-        accountCard.Controls.Add(_accountNameLabel)
-        accountCard.Controls.Add(_accountRoleLabel)
-        accountCard.Controls.Add(_accountActionBtn)
-
-        bottomUtilityPanel.Controls.Add(_sidebarConnBtn)
-        bottomUtilityPanel.Controls.Add(accountCard)
-
-        _sidebarPanel.Controls.Add(_navHost)
-        _sidebarPanel.Controls.Add(navSectionLabel)
-        _sidebarPanel.Controls.Add(brandPanel)
-        _sidebarPanel.Controls.Add(bottomUtilityPanel)
-
-        Dim rightWorkspace As New Panel With {
-            .Dock = DockStyle.Fill,
-            .BackColor = AppTheme.CanvasCream
-        }
-
-        _headerPanel.Dock = DockStyle.Top
-        _headerPanel.Height = 68
-        _headerPanel.BackColor = AppTheme.SurfaceMilk
-        _headerPanel.Padding = New Padding(24, 12, 24, 12)
-        AddHandler _headerPanel.Paint, Sub(s, e)
-                                           Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                               e.Graphics.DrawLine(pen, 0, _headerPanel.Height - 1, _headerPanel.Width, _headerPanel.Height - 1)
-                                           End Using
-                                       End Sub
-
-        _headerTitleLabel.Location = New Point(24, 10)
-        _headerTitleLabel.Font = AppTheme.FontPageTitle
-        _headerTitleLabel.ForeColor = AppTheme.TextPrimary
-        _headerTitleLabel.AutoSize = True
-
-        _headerSubtitleLabel.Location = New Point(25, 40)
-        _headerSubtitleLabel.Font = AppTheme.FontCaption
-        _headerSubtitleLabel.ForeColor = AppTheme.TextSecondary
-        _headerSubtitleLabel.AutoSize = True
-
-        _headerConnectionBtn.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-        _headerConnectionBtn.Size = New Size(216, 32)
-        _headerConnectionBtn.Location = New Point(_headerPanel.Width - 240, 18)
-        _headerConnectionBtn.FlatStyle = FlatStyle.Flat
-        _headerConnectionBtn.Font = AppTheme.FontCaptionBold
-        _headerConnectionBtn.Cursor = Cursors.Hand
-        _headerConnectionBtn.TabIndex = 12
-        AddHandler _headerConnectionBtn.Click, AddressOf OnOpenConfigClick
-
-        _headerPanel.Controls.Add(_headerTitleLabel)
-        _headerPanel.Controls.Add(_headerSubtitleLabel)
-        _headerPanel.Controls.Add(_headerConnectionBtn)
-
-        _contentHost.Dock = DockStyle.Fill
-        _contentHost.BackColor = AppTheme.CanvasCream
-
-        rightWorkspace.Controls.Add(_contentHost)
-        rightWorkspace.Controls.Add(_headerPanel)
-
-        Controls.Add(rightWorkspace)
-        Controls.Add(_sidebarPanel)
     End Sub
 
     Private Sub SelectFeature(feature As FeatureDefinition)
@@ -307,14 +159,29 @@ Public Class MainForm
             AppTheme.StyleSecondaryButton(_accountActionBtn)
         Else
             _accountNameLabel.Text = "Tamu (Belum Masuk)"
-            _accountRoleLabel.Text = "Masuk untuk aksi akun atau staf"
+            _accountRoleLabel.Text = "Masuk untuk akun atau staf"
             _accountActionBtn.Text = "Masuk / Daftar"
             AppTheme.StylePrimaryButton(_accountActionBtn)
         End If
+
+        RefreshConnectionUi()
     End Sub
 
     Private Sub RefreshConnectionUi()
         Dim configured = SupabaseClientProvider.IsConfigured
+        Dim showConnectionControls = (Not configured) OrElse AppSession.IsStaff
+
+        _sidebarConnBtn.Visible = showConnectionControls
+        _headerConnectionBtn.Visible = showConnectionControls
+
+        If showConnectionControls Then
+            _bottomUtilityPanel.Height = 174
+            _accountCard.Location = New Point(14, 54)
+        Else
+            _bottomUtilityPanel.Height = 130
+            _accountCard.Location = New Point(14, 12)
+        End If
+
         If configured Then
             _sidebarConnBtn.Text = "Supabase: Terhubung"
             _sidebarConnBtn.BackColor = AppTheme.SageTint
@@ -340,6 +207,9 @@ Public Class MainForm
             _headerConnectionBtn.FlatAppearance.BorderSize = 1
             _headerConnectionBtn.FlatAppearance.BorderColor = AppTheme.ControlBorder
         End If
+
+        _headerConnectionBtn.Width = AppTheme.MeasureButtonWidth(_headerConnectionBtn.Text, AppTheme.FontCaptionBold, 210, 28)
+        _headerConnectionBtn.Location = New Point(_headerPanel.ClientSize.Width - _headerConnectionBtn.Width - 24, 22)
     End Sub
 
     Private Sub OnSidebarPaint(sender As Object, e As PaintEventArgs)
@@ -374,16 +244,16 @@ Public Class MainForm
         End Using
     End Sub
 
-    Protected Overrides Sub Dispose(disposing As Boolean)
-        If disposing Then
+    Private Sub CleanupRuntimeResources()
+        If _runtimeInitialized Then
             RemoveHandler AppSession.SessionChanged, AddressOf OnSessionChanged
             RemoveHandler SupabaseClientProvider.ConfigurationChanged, AddressOf OnConfigurationChanged
-            If _activeView IsNot Nothing Then
-                _activeView.Dispose()
-                _activeView = Nothing
-            End If
+            _runtimeInitialized = False
         End If
-        MyBase.Dispose(disposing)
+        If _activeView IsNot Nothing Then
+            _activeView.Dispose()
+            _activeView = Nothing
+        End If
     End Sub
 
     Private NotInheritable Class SidebarNavItem
@@ -488,9 +358,9 @@ Public Class MainForm
                 End Using
             End If
 
-            Dim titleColor = If(_isSelected, AppTheme.TextPrimary, AppTheme.TextPrimary)
+            Dim titleColor = AppTheme.TextPrimary
             Dim titleFont = If(_isSelected, AppTheme.FontBodyBold, AppTheme.FontBody)
-            Dim titleRect As New Rectangle(14, 7, Width - 22, 22)
+            Dim titleRect As New Rectangle(14, 8, Width - 22, 24)
             TextRenderer.DrawText(
                 e.Graphics,
                 Feature.DisplayName,
@@ -510,8 +380,8 @@ Public Class MainForm
                 statusFg = AppTheme.WarningText
             End If
 
-            Dim badgeWidth = TextRenderer.MeasureText(statusText, AppTheme.FontCaptionBold).Width + 10
-            Dim badgeRect As New Rectangle(14, 31, badgeWidth, 18)
+            Dim badgeWidth = TextRenderer.MeasureText(statusText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 14
+            Dim badgeRect As New Rectangle(14, 34, badgeWidth, 20)
             Using badgePath = AppTheme.CreateRoundedRectPath(badgeRect, 4)
                 Using badgeBrush As New SolidBrush(statusBg)
                     e.Graphics.FillPath(badgeBrush, badgePath)
@@ -525,7 +395,7 @@ Public Class MainForm
                 statusFg,
                 TextFormatFlags.HorizontalCenter Or TextFormatFlags.VerticalCenter)
 
-            Dim ownerRect As New Rectangle(badgeRect.Right + 8, 31, Width - badgeRect.Right - 14, 18)
+            Dim ownerRect As New Rectangle(badgeRect.Right + 8, 34, Width - badgeRect.Right - 14, 20)
             TextRenderer.DrawText(
                 e.Graphics,
                 Feature.Owner,

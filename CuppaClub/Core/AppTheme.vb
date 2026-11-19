@@ -63,6 +63,20 @@ Namespace Core
             Return "Rp " & amount.ToString("#,##0", IdCulture)
         End Function
 
+        Public Shared Function MeasureButtonWidth(
+            text As String,
+            font As Font,
+            minWidth As Integer,
+            Optional horizontalPadding As Integer = 28
+        ) As Integer
+            Dim measured = TextRenderer.MeasureText(
+                If(text, String.Empty),
+                font,
+                New Size(Integer.MaxValue, Integer.MaxValue),
+                TextFormatFlags.SingleLine).Width
+            Return Math.Max(minWidth, measured + horizontalPadding)
+        End Function
+
         Public Shared Sub StylePrimaryButton(button As Button)
             button.FlatStyle = FlatStyle.Flat
             button.BackColor = PrimaryMocha

@@ -1,6 +1,7 @@
 Option Strict On
 Option Explicit On
 
+Imports System.ComponentModel
 Imports CuppaClub.Core
 Imports CuppaClub.Services
 
@@ -10,180 +11,52 @@ Namespace Forms
 
         Private ReadOnly _authService As New AuthService()
         Private _isRegisterMode As Boolean
-
-        Private ReadOnly _signInModeBtn As New Button()
-        Private ReadOnly _registerModeBtn As New Button()
-        Private ReadOnly _configBanner As New Panel()
-        Private ReadOnly _configMessageLabel As New Label()
-        Private ReadOnly _openConfigBtn As New Button()
-
-        Private ReadOnly _nameLabel As New Label()
-        Private ReadOnly _nameTextBox As New TextBox()
-        Private ReadOnly _emailLabel As New Label()
-        Private ReadOnly _emailTextBox As New TextBox()
-        Private ReadOnly _passwordLabel As New Label()
-        Private ReadOnly _passwordTextBox As New TextBox()
-        Private ReadOnly _showPasswordCheckBox As New CheckBox()
-        Private ReadOnly _feedbackLabel As New Label()
-        Private ReadOnly _submitButton As New Button()
-        Private ReadOnly _cancelButton As New Button()
+        Private _showConfigBanner As Boolean
 
         Public Sub New()
-            Text = "Akun CuppaClub"
-            FormBorderStyle = FormBorderStyle.FixedDialog
-            MaximizeBox = False
-            MinimizeBox = False
-            StartPosition = FormStartPosition.CenterParent
-            ClientSize = New Size(460, 490)
-            BackColor = AppTheme.CanvasCream
-            ForeColor = AppTheme.TextPrimary
-            Font = AppTheme.FontBody
-            KeyPreview = True
+            InitializeComponent()
 
-            BuildUi()
+            If LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then
+                Return
+            End If
+
+            WireRuntimeBehavior()
+            ApplyButtonSizing()
             UpdateModeUi()
             RefreshConfigBanner()
         End Sub
 
-        Private Sub BuildUi()
-            Dim titleLabel As New Label With {
-                .Text = "Masuk ke CuppaClub",
-                .Font = AppTheme.FontPageTitle,
-                .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(24, 20),
-                .AutoSize = True
-            }
-
-            Dim subtitleLabel As New Label With {
-                .Text = "Gunakan akun pelanggan atau akun staf yang terdaftar di Supabase Auth.",
-                .Font = AppTheme.FontCaption,
-                .ForeColor = AppTheme.TextSecondary,
-                .Location = New Point(24, 52),
-                .MaximumSize = New Size(412, 0),
-                .AutoSize = True
-            }
-
-            _signInModeBtn.Text = "Masuk"
-            _signInModeBtn.Location = New Point(24, 84)
-            _signInModeBtn.Size = New Size(120, 32)
-            _signInModeBtn.TabIndex = 0
+        Private Sub WireRuntimeBehavior()
             AddHandler _signInModeBtn.Click, Sub()
                                                  _isRegisterMode = False
                                                  ClearFeedback()
                                                  UpdateModeUi()
                                              End Sub
-
-            _registerModeBtn.Text = "Daftar Akun"
-            _registerModeBtn.Location = New Point(152, 84)
-            _registerModeBtn.Size = New Size(120, 32)
-            _registerModeBtn.TabIndex = 1
             AddHandler _registerModeBtn.Click, Sub()
                                                    _isRegisterMode = True
                                                    ClearFeedback()
                                                    UpdateModeUi()
                                                End Sub
-
-            _configBanner.Location = New Point(24, 128)
-            _configBanner.Size = New Size(412, 62)
-            _configBanner.BackColor = AppTheme.WarningTint
-            _configBanner.Padding = New Padding(10, 8, 10, 8)
-
-            _configMessageLabel.Text = "Supabase belum dikonfigurasi. Atur koneksi terlebih dahulu."
-            _configMessageLabel.Font = AppTheme.FontCaptionBold
-            _configMessageLabel.ForeColor = AppTheme.WarningText
-            _configMessageLabel.Location = New Point(10, 8)
-            _configMessageLabel.Size = New Size(276, 44)
-
-            _openConfigBtn.Text = "Atur Koneksi"
-            _openConfigBtn.Size = New Size(108, 30)
-            _openConfigBtn.Location = New Point(292, 16)
-            _openConfigBtn.TabIndex = 2
-            AppTheme.StyleSecondaryButton(_openConfigBtn)
             AddHandler _openConfigBtn.Click, AddressOf OnOpenConfigClick
-
-            _configBanner.Controls.Add(_configMessageLabel)
-            _configBanner.Controls.Add(_openConfigBtn)
-
-            _nameLabel.Text = "Nama Lengkap"
-            _nameLabel.Font = AppTheme.FontBodyBold
-            _nameLabel.ForeColor = AppTheme.TextPrimary
-            _nameLabel.Location = New Point(24, 202)
-            _nameLabel.AutoSize = True
-
-            _nameTextBox.Location = New Point(24, 224)
-            _nameTextBox.Size = New Size(412, 28)
-            _nameTextBox.BackColor = AppTheme.SurfaceMilk
-            _nameTextBox.ForeColor = AppTheme.TextPrimary
-            _nameTextBox.PlaceholderText = "Nama Anda"
-            _nameTextBox.TabIndex = 3
-
-            _emailLabel.Text = "Email"
-            _emailLabel.Font = AppTheme.FontBodyBold
-            _emailLabel.ForeColor = AppTheme.TextPrimary
-            _emailLabel.AutoSize = True
-
-            _emailTextBox.Size = New Size(412, 28)
-            _emailTextBox.BackColor = AppTheme.SurfaceMilk
-            _emailTextBox.ForeColor = AppTheme.TextPrimary
-            _emailTextBox.PlaceholderText = "nama@email.com"
-            _emailTextBox.TabIndex = 4
-
-            _passwordLabel.Text = "Kata Sandi"
-            _passwordLabel.Font = AppTheme.FontBodyBold
-            _passwordLabel.ForeColor = AppTheme.TextPrimary
-            _passwordLabel.AutoSize = True
-
-            _passwordTextBox.Size = New Size(412, 28)
-            _passwordTextBox.BackColor = AppTheme.SurfaceMilk
-            _passwordTextBox.ForeColor = AppTheme.TextPrimary
-            _passwordTextBox.UseSystemPasswordChar = True
-            _passwordTextBox.PlaceholderText = "Minimal 6 karakter"
-            _passwordTextBox.TabIndex = 5
-
-            _showPasswordCheckBox.Text = "Tampilkan kata sandi"
-            _showPasswordCheckBox.AutoSize = True
-            _showPasswordCheckBox.Cursor = Cursors.Hand
-            _showPasswordCheckBox.TabIndex = 6
             AddHandler _showPasswordCheckBox.CheckedChanged, Sub()
                                                                  _passwordTextBox.UseSystemPasswordChar = Not _showPasswordCheckBox.Checked
                                                              End Sub
-
-            _feedbackLabel.Size = New Size(412, 42)
-            _feedbackLabel.Font = AppTheme.FontCaptionBold
-            _feedbackLabel.Padding = New Padding(10, 6, 10, 6)
-            _feedbackLabel.Visible = False
-
-            _cancelButton.Text = "Tutup"
-            _cancelButton.Size = New Size(96, 36)
-            _cancelButton.DialogResult = DialogResult.Cancel
-            _cancelButton.TabIndex = 8
-            AppTheme.StyleSecondaryButton(_cancelButton)
-
-            _submitButton.Size = New Size(136, 36)
-            _submitButton.TabIndex = 7
-            AppTheme.StylePrimaryButton(_submitButton)
             AddHandler _submitButton.Click, AddressOf OnSubmitClick
+        End Sub
 
-            AcceptButton = _submitButton
-            CancelButton = _cancelButton
+        Private Sub ApplyButtonSizing()
+            _signInModeBtn.Width = AppTheme.MeasureButtonWidth(_signInModeBtn.Text, AppTheme.FontBodyBold, 116, 28)
+            _registerModeBtn.Width = AppTheme.MeasureButtonWidth(_registerModeBtn.Text, AppTheme.FontBodyBold, 128, 28)
+            _registerModeBtn.Location = New Point(_signInModeBtn.Right + 8, _registerModeBtn.Top)
 
-            Controls.AddRange({
-                titleLabel,
-                subtitleLabel,
-                _signInModeBtn,
-                _registerModeBtn,
-                _configBanner,
-                _nameLabel,
-                _nameTextBox,
-                _emailLabel,
-                _emailTextBox,
-                _passwordLabel,
-                _passwordTextBox,
-                _showPasswordCheckBox,
-                _feedbackLabel,
-                _cancelButton,
-                _submitButton
-            })
+            _openConfigBtn.Width = AppTheme.MeasureButtonWidth(_openConfigBtn.Text, AppTheme.FontBodyBold, 126, 26)
+            _openConfigBtn.Location = New Point(_configBanner.Width - _openConfigBtn.Width - 10, 16)
+            _configMessageLabel.Width = _openConfigBtn.Left - 16
+
+            _cancelButton.Width = AppTheme.MeasureButtonWidth(_cancelButton.Text, AppTheme.FontBodyBold, 96, 28)
+            AppTheme.StyleSecondaryButton(_cancelButton)
+            AppTheme.StyleSecondaryButton(_openConfigBtn)
+            AppTheme.StylePrimaryButton(_submitButton)
         End Sub
 
         Private Sub UpdateModeUi()
@@ -200,7 +73,7 @@ Namespace Forms
             _nameLabel.Visible = _isRegisterMode
             _nameTextBox.Visible = _isRegisterMode
 
-            Dim topOffset = If(_configBanner.Visible, 200, 132)
+            Dim topOffset = If(_showConfigBanner, 218, 146)
             If _isRegisterMode Then
                 _nameLabel.Location = New Point(24, topOffset)
                 _nameTextBox.Location = New Point(24, topOffset + 22)
@@ -215,14 +88,16 @@ Namespace Forms
             _feedbackLabel.Location = New Point(24, topOffset + 148)
 
             Dim buttonsY = Math.Max(428, topOffset + 200)
-            _cancelButton.Location = New Point(196, buttonsY)
-            _submitButton.Location = New Point(300, buttonsY)
+            _submitButton.Width = AppTheme.MeasureButtonWidth(_submitButton.Text, AppTheme.FontBodyBold, 136, 28)
+            _submitButton.Location = New Point(436 - _submitButton.Width, buttonsY)
+            _cancelButton.Location = New Point(_submitButton.Left - _cancelButton.Width - 8, buttonsY)
             ClientSize = New Size(460, buttonsY + 58)
         End Sub
 
         Private Sub RefreshConfigBanner()
             Dim configured = SupabaseClientProvider.IsConfigured
-            _configBanner.Visible = Not configured
+            _showConfigBanner = Not configured
+            _configBanner.Visible = _showConfigBanner
             _submitButton.Enabled = configured
             UpdateModeUi()
         End Sub
