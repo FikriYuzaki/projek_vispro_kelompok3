@@ -40,6 +40,8 @@ Namespace Features
         Private _loadVersion As Integer
 
         Private ReadOnly _toolbarPanel As New Panel()
+        Private ReadOnly _searchLabel As New Label()
+        Private ReadOnly _categoryLabel As New Label()
         Private ReadOnly _searchTextBox As New TextBox()
         Private ReadOnly _clearSearchBtn As New Button()
         Private ReadOnly _showUnavailableCheck As New CheckBox()
@@ -48,6 +50,8 @@ Namespace Features
         Private ReadOnly _resultCountLabel As New Label()
 
         Private ReadOnly _workspaceHost As New Panel()
+        Private ReadOnly _catalogPane As New Panel()
+        Private ReadOnly _countStripPanel As New Panel()
         Private ReadOnly _cardsPanel As New BufferedFlowLayoutPanel()
         Private ReadOnly _detailPanel As New Panel()
         Private ReadOnly _detailPhotoBox As New PictureBox()
@@ -104,27 +108,21 @@ Namespace Features
                                                     e.Graphics.DrawLine(pen, 0, _toolbarPanel.Height - 1, _toolbarPanel.Width, _toolbarPanel.Height - 1)
                                                 End Using
                                             End Sub
+            AddHandler _toolbarPanel.Resize, Sub() LayoutToolbar()
 
-            Dim searchLabel As New Label With {
-                .Text = "Cari menu",
-                .Font = AppTheme.FontBodyBold,
-                .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(20, 16),
-                .AutoSize = True
-            }
+            _searchLabel.Text = "Cari menu"
+            _searchLabel.Font = AppTheme.FontBodyBold
+            _searchLabel.ForeColor = AppTheme.TextPrimary
+            _searchLabel.Location = New Point(20, 16)
+            _searchLabel.AutoSize = True
 
-            Dim categoryLabel As New Label With {
-                .Text = "Kategori",
-                .Font = AppTheme.FontBodyBold,
-                .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(20, 61),
-                .AutoSize = True
-            }
+            _categoryLabel.Text = "Kategori"
+            _categoryLabel.Font = AppTheme.FontBodyBold
+            _categoryLabel.ForeColor = AppTheme.TextPrimary
+            _categoryLabel.Location = New Point(20, 61)
+            _categoryLabel.AutoSize = True
 
-            Dim leftColumnX = 20 + Math.Max(searchLabel.PreferredWidth, categoryLabel.PreferredWidth) + 12
-
-            _searchTextBox.Location = New Point(leftColumnX, 13)
-            _searchTextBox.Size = New Size(156, 28)
+            _searchTextBox.Height = 28
             _searchTextBox.BackColor = AppTheme.CanvasCream
             _searchTextBox.ForeColor = AppTheme.TextPrimary
             _searchTextBox.PlaceholderText = "Nama kopi, pastry, atau bahan..."
@@ -132,8 +130,8 @@ Namespace Features
             AddHandler _searchTextBox.TextChanged, AddressOf OnSearchTextChanged
 
             _clearSearchBtn.Text = "Bersihkan"
-            _clearSearchBtn.Location = New Point(_searchTextBox.Right + 8, 12)
-            _clearSearchBtn.Size = New Size(78, 30)
+            _clearSearchBtn.Height = 30
+            _clearSearchBtn.Width = AppTheme.MeasureButtonWidth(_clearSearchBtn.Text, AppTheme.FontBodyBold, 98, 28)
             _clearSearchBtn.Enabled = False
             _clearSearchBtn.TabIndex = 1
             AppTheme.StyleSecondaryButton(_clearSearchBtn)
@@ -143,39 +141,34 @@ Namespace Features
                                               End Sub
 
             _showUnavailableCheck.Text = "Tampilkan habis"
-            _showUnavailableCheck.Location = New Point(_clearSearchBtn.Right + 10, 16)
             _showUnavailableCheck.AutoSize = True
             _showUnavailableCheck.Cursor = Cursors.Hand
-            _showUnavailableCheck.TabIndex = 2
+            _showUnavailableCheck.TabIndex = 7
             AddHandler _showUnavailableCheck.CheckedChanged, Sub() ApplyFiltersAndRender()
 
             _addMenuBtn.Text = "+ Tambah Menu"
-            _addMenuBtn.Size = New Size(118, 32)
-            _addMenuBtn.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-            _addMenuBtn.Location = New Point(_toolbarPanel.Width - 234, 11)
-            _addMenuBtn.TabIndex = 3
+            _addMenuBtn.Height = 32
+            _addMenuBtn.Width = AppTheme.MeasureButtonWidth(_addMenuBtn.Text, AppTheme.FontBodyBold, 142, 28)
+            _addMenuBtn.TabIndex = 2
             AppTheme.StylePrimaryButton(_addMenuBtn)
             AddHandler _addMenuBtn.Click, AddressOf OnAddMenuClick
 
             _reloadBtn.Text = "Muat Ulang"
-            _reloadBtn.Size = New Size(96, 32)
-            _reloadBtn.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-            _reloadBtn.Location = New Point(_toolbarPanel.Width - 110, 11)
-            _reloadBtn.TabIndex = 4
+            _reloadBtn.Height = 32
+            _reloadBtn.Width = AppTheme.MeasureButtonWidth(_reloadBtn.Text, AppTheme.FontBodyBold, 114, 28)
+            _reloadBtn.TabIndex = 3
             AppTheme.StyleSecondaryButton(_reloadBtn)
             AddHandler _reloadBtn.Click, Sub() LoadMenuAsync()
 
             Dim categoryNames As New List(Of String) From {"Semua"}
             categoryNames.AddRange(Models.MenuItem.Categories)
 
-            Dim xPos = leftColumnX
-            Dim catTabIdx = 5
+            Dim catTabIdx = 4
             For Each catName In categoryNames
                 Dim btn As New Button With {
                     .Text = catName,
-                    .Location = New Point(xPos, 56),
                     .Height = 32,
-                    .Width = Math.Max(68, TextRenderer.MeasureText(catName, AppTheme.FontBodyBold).Width + 16),
+                    .Width = AppTheme.MeasureButtonWidth(catName, AppTheme.FontBodyBold, 72, 24),
                     .TabIndex = catTabIdx
                 }
                 catTabIdx += 1
@@ -187,44 +180,82 @@ Namespace Features
                                       End Sub
                 _categoryButtons(catName) = btn
                 _toolbarPanel.Controls.Add(btn)
-                xPos += btn.Width + 6
             Next
 
-            _resultCountLabel.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-            _resultCountLabel.Location = New Point(_toolbarPanel.Width - 172, 62)
-            _resultCountLabel.Size = New Size(158, 22)
-            _resultCountLabel.TextAlign = ContentAlignment.MiddleRight
-            _resultCountLabel.Font = AppTheme.FontCaptionBold
-            _resultCountLabel.ForeColor = AppTheme.TextSecondary
-            _resultCountLabel.Visible = False
-
             _toolbarPanel.Controls.AddRange({
-                searchLabel,
+                _searchLabel,
                 _searchTextBox,
                 _clearSearchBtn,
                 _showUnavailableCheck,
                 _addMenuBtn,
                 _reloadBtn,
-                categoryLabel,
-                _resultCountLabel
+                _categoryLabel
             })
 
             UpdateCategoryButtonStyles()
+            LayoutToolbar()
+        End Sub
+
+        Private Sub LayoutToolbar()
+            Dim w = _toolbarPanel.ClientSize.Width
+            If w <= 0 Then Return
+
+            Dim leftColumnX = 20 + Math.Max(_searchLabel.PreferredWidth, _categoryLabel.PreferredWidth) + 12
+
+            _reloadBtn.Location = New Point(w - _reloadBtn.Width - 20, 11)
+            Dim row1RightEdge = _reloadBtn.Left - 8
+            If _addMenuBtn.Visible Then
+                _addMenuBtn.Location = New Point(_reloadBtn.Left - _addMenuBtn.Width - 8, 11)
+                row1RightEdge = _addMenuBtn.Left - 12
+            End If
+
+            Dim searchWidth = Math.Max(140, Math.Min(340, row1RightEdge - leftColumnX - _clearSearchBtn.Width - 16))
+            _searchTextBox.Location = New Point(leftColumnX, 13)
+            _searchTextBox.Width = searchWidth
+            _clearSearchBtn.Location = New Point(_searchTextBox.Right + 8, 12)
+
+            Dim xPos = leftColumnX
+            For Each catName In _categoryButtons.Keys
+                Dim btn = _categoryButtons(catName)
+                btn.Location = New Point(xPos, 56)
+                xPos += btn.Width + 6
+            Next
+
+            Dim checkWidth = _showUnavailableCheck.PreferredSize.Width
+            _showUnavailableCheck.Location = New Point(Math.Max(xPos + 8, w - checkWidth - 20), 61)
         End Sub
 
         Private Sub BuildWorkspace()
             _workspaceHost.Dock = DockStyle.Fill
             _workspaceHost.BackColor = AppTheme.CanvasCream
 
+            _catalogPane.Dock = DockStyle.Fill
+            _catalogPane.BackColor = AppTheme.CanvasCream
+
+            _countStripPanel.Dock = DockStyle.Top
+            _countStripPanel.Height = 30
+            _countStripPanel.BackColor = AppTheme.CanvasCream
+            _countStripPanel.Padding = New Padding(20, 8, 12, 0)
+            _countStripPanel.Visible = False
+
+            _resultCountLabel.Location = New Point(20, 8)
+            _resultCountLabel.AutoSize = True
+            _resultCountLabel.Font = AppTheme.FontCaptionBold
+            _resultCountLabel.ForeColor = AppTheme.TextSecondary
+            _countStripPanel.Controls.Add(_resultCountLabel)
+
             _cardsPanel.Dock = DockStyle.Fill
             _cardsPanel.BackColor = AppTheme.CanvasCream
             _cardsPanel.AutoScroll = True
             _cardsPanel.WrapContents = True
             _cardsPanel.FlowDirection = FlowDirection.LeftToRight
-            _cardsPanel.Padding = New Padding(20, 16, 10, 20)
+            _cardsPanel.Padding = New Padding(20, 10, 10, 20)
+
+            _catalogPane.Controls.Add(_cardsPanel)
+            _catalogPane.Controls.Add(_countStripPanel)
 
             _detailPanel.Dock = DockStyle.Right
-            _detailPanel.Width = 348
+            _detailPanel.Width = 356
             _detailPanel.BackColor = AppTheme.SurfaceMilk
             _detailPanel.AutoScroll = True
             _detailPanel.Padding = New Padding(20)
@@ -239,18 +270,18 @@ Namespace Features
                 .FlowDirection = FlowDirection.TopDown,
                 .WrapContents = False,
                 .AutoSize = True,
-                .Width = 288,
+                .Width = 296,
                 .BackColor = Color.Transparent
             }
 
-            _detailPhotoBox.Size = New Size(288, 178)
+            _detailPhotoBox.Size = New Size(296, 182)
             _detailPhotoBox.SizeMode = PictureBoxSizeMode.Zoom
             _detailPhotoBox.BackColor = AppTheme.SidebarOat
             _detailPhotoBox.Margin = New Padding(0, 0, 0, 12)
             AddHandler _detailPhotoBox.Paint, AddressOf OnDetailPhotoPaint
 
             Dim metaRow As New Panel With {
-                .Width = 288,
+                .Width = 296,
                 .Height = 28,
                 .Margin = New Padding(0, 0, 0, 6)
             }
@@ -268,7 +299,7 @@ Namespace Features
 
             _detailTitleLabel.Font = AppTheme.FontSectionTitle
             _detailTitleLabel.ForeColor = AppTheme.TextPrimary
-            _detailTitleLabel.MaximumSize = New Size(288, 0)
+            _detailTitleLabel.MaximumSize = New Size(296, 0)
             _detailTitleLabel.AutoSize = True
             _detailTitleLabel.Margin = New Padding(0, 0, 0, 4)
 
@@ -279,29 +310,29 @@ Namespace Features
 
             _detailDescriptionLabel.Font = AppTheme.FontBody
             _detailDescriptionLabel.ForeColor = AppTheme.TextSecondary
-            _detailDescriptionLabel.MaximumSize = New Size(288, 0)
+            _detailDescriptionLabel.MaximumSize = New Size(296, 0)
             _detailDescriptionLabel.AutoSize = True
             _detailDescriptionLabel.Margin = New Padding(0, 0, 0, 14)
 
             _detailCustomNoteLabel.Font = AppTheme.FontCaption
-            _detailCustomNoteLabel.MaximumSize = New Size(288, 0)
+            _detailCustomNoteLabel.MaximumSize = New Size(296, 0)
             _detailCustomNoteLabel.AutoSize = True
             _detailCustomNoteLabel.Padding = New Padding(10, 8, 10, 8)
             _detailCustomNoteLabel.Margin = New Padding(0, 0, 0, 14)
 
-            _staffActionsPanel.Width = 288
+            _staffActionsPanel.Width = 296
             _staffActionsPanel.Height = 46
             _staffActionsPanel.Margin = New Padding(0, 0, 0, 8)
 
             _editMenuBtn.Text = "Edit Menu"
             _editMenuBtn.Location = New Point(0, 4)
-            _editMenuBtn.Size = New Size(136, 34)
+            _editMenuBtn.Size = New Size(AppTheme.MeasureButtonWidth(_editMenuBtn.Text, AppTheme.FontBodyBold, 114, 24), 34)
             AppTheme.StylePrimaryButton(_editMenuBtn)
             AddHandler _editMenuBtn.Click, AddressOf OnEditSelectedClick
 
             _toggleAvailabilityBtn.Text = "Tandai Habis"
-            _toggleAvailabilityBtn.Location = New Point(144, 4)
-            _toggleAvailabilityBtn.Size = New Size(144, 34)
+            _toggleAvailabilityBtn.Location = New Point(_editMenuBtn.Right + 8, 4)
+            _toggleAvailabilityBtn.Size = New Size(296 - _toggleAvailabilityBtn.Left, 34)
             AppTheme.StyleSecondaryButton(_toggleAvailabilityBtn)
             AddHandler _toggleAvailabilityBtn.Click, AddressOf OnToggleAvailabilityClick
 
@@ -309,7 +340,7 @@ Namespace Features
             _staffActionsPanel.Controls.Add(_toggleAvailabilityBtn)
 
             _detailStatusBanner.Font = AppTheme.FontCaptionBold
-            _detailStatusBanner.MaximumSize = New Size(288, 0)
+            _detailStatusBanner.MaximumSize = New Size(296, 0)
             _detailStatusBanner.AutoSize = True
             _detailStatusBanner.Padding = New Padding(10, 6, 10, 6)
             _detailStatusBanner.Visible = False
@@ -327,7 +358,7 @@ Namespace Features
 
             _detailPanel.Controls.Add(detailLayout)
 
-            _workspaceHost.Controls.Add(_cardsPanel)
+            _workspaceHost.Controls.Add(_catalogPane)
             _workspaceHost.Controls.Add(_detailPanel)
         End Sub
 
@@ -439,7 +470,7 @@ Namespace Features
 
             If _allItems.Count = 0 Then
                 _filteredItems = New List(Of Models.MenuItem)()
-                _resultCountLabel.Visible = False
+                _countStripPanel.Visible = False
                 ShowStateOverlay(GalleryViewState.EmptyDatabase, String.Empty)
                 Return
             End If
@@ -451,16 +482,16 @@ Namespace Features
                 _showUnavailableCheck.Checked)
 
             If _filteredItems.Count = 0 Then
-                _resultCountLabel.Visible = False
+                _countStripPanel.Visible = False
                 ShowStateOverlay(GalleryViewState.EmptyFilter, String.Empty)
                 Return
             End If
 
             _stateOverlay.Visible = False
-            _cardsPanel.Visible = True
+            _catalogPane.Visible = True
             _detailPanel.Visible = True
-            _resultCountLabel.Text = $"{_filteredItems.Count} dari {_allItems.Count} menu"
-            _resultCountLabel.Visible = True
+            _resultCountLabel.Text = $"Menampilkan {_filteredItems.Count} dari {_allItems.Count} menu"
+            _countStripPanel.Visible = True
 
             RenderCards()
         End Sub
@@ -482,7 +513,7 @@ Namespace Features
                 Dim tabIdx = 20
                 For Each item In _filteredItems
                     Dim card As New MenuCardControl(item) With {
-                        .Size = New Size(236, 252),
+                        .Size = New Size(244, 280),
                         .Margin = New Padding(0, 0, 14, 14),
                         .TabIndex = tabIdx,
                         .IsSelected = String.Equals(item.Id, _selectedItemId, StringComparison.Ordinal)
@@ -535,7 +566,7 @@ Namespace Features
             Else
                 AppTheme.ApplyStatusTag(_detailAvailabilityTag, "Habis", AppTheme.ErrorTint, AppTheme.ErrorText)
             End If
-            _detailAvailabilityTag.Location = New Point(Math.Max(120, 288 - _detailAvailabilityTag.PreferredWidth), 2)
+            _detailAvailabilityTag.Location = New Point(Math.Max(120, 296 - _detailAvailabilityTag.PreferredWidth), 2)
 
             _detailTitleLabel.Text = item.Name
             _detailPriceLabel.Text = AppTheme.FormatRupiah(item.BasePrice)
@@ -663,8 +694,9 @@ Namespace Features
 
         Private Sub ShowStateOverlay(state As GalleryViewState, detailError As String)
             _currentOverlayState = state
-            _cardsPanel.Visible = False
+            _catalogPane.Visible = False
             _detailPanel.Visible = False
+            _countStripPanel.Visible = False
             _stateOverlay.Visible = True
             _stateProgress.Visible = (state = GalleryViewState.Loading)
             _stateActionBtn.Visible = True
@@ -847,6 +879,7 @@ Namespace Features
 
         Private Sub UpdateStaffControlsVisibility()
             _addMenuBtn.Visible = AppSession.IsStaff
+            LayoutToolbar()
             Dim selected = _filteredItems.FirstOrDefault(Function(x) String.Equals(x.Id, _selectedItemId, StringComparison.Ordinal))
             _staffActionsPanel.Visible = AppSession.IsStaff AndAlso selected IsNot Nothing
             If AppSession.IsStaff AndAlso selected IsNot Nothing Then
@@ -978,7 +1011,7 @@ Namespace Features
                     End Using
                 End Using
 
-                Dim photoRect As New Rectangle(8, 8, Width - 16, 130)
+                Dim photoRect As New Rectangle(8, 8, Width - 16, 134)
                 Using photoPath = AppTheme.CreateRoundedRectPath(photoRect, 6)
                     Using photoBg As New SolidBrush(AppTheme.SidebarOat)
                         e.Graphics.FillPath(photoBg, photoPath)
@@ -1000,19 +1033,11 @@ Namespace Features
                     End If
                 End Using
 
-                Dim categoryRect As New Rectangle(10, 146, 118, 18)
-                TextRenderer.DrawText(
-                    e.Graphics,
-                    Item.Category,
-                    AppTheme.FontCaptionBold,
-                    categoryRect,
-                    AppTheme.TextSecondary,
-                    TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
-
+                Dim customW = 0
                 If Item.SupportsCustomization Then
                     Dim customText = "Bisa Dikustom"
-                    Dim customW = TextRenderer.MeasureText(customText, AppTheme.FontCaptionBold).Width + 8
-                    Dim customRect As New Rectangle(Width - customW - 10, 145, customW, 18)
+                    customW = TextRenderer.MeasureText(customText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 14
+                    Dim customRect As New Rectangle(Width - customW - 10, 149, customW, 22)
                     Using customPath = AppTheme.CreateRoundedRectPath(customRect, 4)
                         Using customBrush As New SolidBrush(AppTheme.AccentStrawberryTint)
                             e.Graphics.FillPath(customBrush, customPath)
@@ -1027,29 +1052,39 @@ Namespace Features
                         TextFormatFlags.HorizontalCenter Or TextFormatFlags.VerticalCenter)
                 End If
 
-                Dim nameRect As New Rectangle(10, 168, Width - 20, 40)
+                Dim categoryWidth = If(customW > 0, Width - customW - 26, Width - 20)
+                Dim categoryRect As New Rectangle(10, 150, categoryWidth, 22)
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    Item.Category,
+                    AppTheme.FontCaptionBold,
+                    categoryRect,
+                    AppTheme.TextSecondary,
+                    TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
+
+                Dim nameRect As New Rectangle(10, 176, Width - 20, 56)
                 TextRenderer.DrawText(
                     e.Graphics,
                     Item.Name,
                     AppTheme.FontCardTitle,
                     nameRect,
                     AppTheme.TextPrimary,
-                    TextFormatFlags.Left Or TextFormatFlags.Top Or TextFormatFlags.WordBreak Or TextFormatFlags.EndEllipsis)
+                    TextFormatFlags.Left Or TextFormatFlags.Top Or TextFormatFlags.WordBreak Or TextFormatFlags.EndEllipsis Or TextFormatFlags.NoPrefix)
 
-                Dim priceRect As New Rectangle(10, 214, 130, 26)
+                Dim availText = If(Item.IsAvailable, "Tersedia", "Habis")
+                Dim availBg = If(Item.IsAvailable, AppTheme.SageTint, AppTheme.ErrorTint)
+                Dim availFg = If(Item.IsAvailable, AppTheme.SageText, AppTheme.ErrorText)
+                Dim availW = TextRenderer.MeasureText(availText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 16
+                Dim availRect As New Rectangle(Width - availW - 10, 242, availW, 24)
+
+                Dim priceRect As New Rectangle(10, 240, Width - availW - 24, 28)
                 TextRenderer.DrawText(
                     e.Graphics,
                     AppTheme.FormatRupiah(Item.BasePrice),
                     AppTheme.FontBodyBold,
                     priceRect,
                     AppTheme.PrimaryMocha,
-                    TextFormatFlags.Left Or TextFormatFlags.VerticalCenter)
-
-                Dim availText = If(Item.IsAvailable, "Tersedia", "Habis")
-                Dim availBg = If(Item.IsAvailable, AppTheme.SageTint, AppTheme.ErrorTint)
-                Dim availFg = If(Item.IsAvailable, AppTheme.SageText, AppTheme.ErrorText)
-                Dim availW = TextRenderer.MeasureText(availText, AppTheme.FontCaptionBold).Width + 12
-                Dim availRect As New Rectangle(Width - availW - 10, 217, availW, 20)
+                    TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
 
                 Using availPath = AppTheme.CreateRoundedRectPath(availRect, 4)
                     Using availBrush As New SolidBrush(availBg)

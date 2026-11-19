@@ -66,7 +66,7 @@ Namespace Forms
 
             _signInModeBtn.Text = "Masuk"
             _signInModeBtn.Location = New Point(24, 102)
-            _signInModeBtn.Size = New Size(120, 32)
+            _signInModeBtn.Size = New Size(AppTheme.MeasureButtonWidth(_signInModeBtn.Text, AppTheme.FontBodyBold, 116, 28), 32)
             _signInModeBtn.TabIndex = 0
             AddHandler _signInModeBtn.Click, Sub()
                                                  _isRegisterMode = False
@@ -75,8 +75,8 @@ Namespace Forms
                                              End Sub
 
             _registerModeBtn.Text = "Daftar Akun"
-            _registerModeBtn.Location = New Point(152, 102)
-            _registerModeBtn.Size = New Size(120, 32)
+            _registerModeBtn.Location = New Point(_signInModeBtn.Right + 8, 102)
+            _registerModeBtn.Size = New Size(AppTheme.MeasureButtonWidth(_registerModeBtn.Text, AppTheme.FontBodyBold, 128, 28), 32)
             _registerModeBtn.TabIndex = 1
             AddHandler _registerModeBtn.Click, Sub()
                                                    _isRegisterMode = True
@@ -89,18 +89,18 @@ Namespace Forms
             _configBanner.BackColor = AppTheme.WarningTint
             _configBanner.Padding = New Padding(10, 8, 10, 8)
 
+            _openConfigBtn.Text = "Atur Koneksi"
+            _openConfigBtn.Size = New Size(AppTheme.MeasureButtonWidth(_openConfigBtn.Text, AppTheme.FontBodyBold, 126, 26), 30)
+            _openConfigBtn.Location = New Point(_configBanner.Width - _openConfigBtn.Width - 10, 16)
+            _openConfigBtn.TabIndex = 2
+            AppTheme.StyleSecondaryButton(_openConfigBtn)
+            AddHandler _openConfigBtn.Click, AddressOf OnOpenConfigClick
+
             _configMessageLabel.Text = "Supabase belum dikonfigurasi. Atur koneksi terlebih dahulu."
             _configMessageLabel.Font = AppTheme.FontCaptionBold
             _configMessageLabel.ForeColor = AppTheme.WarningText
             _configMessageLabel.Location = New Point(10, 8)
-            _configMessageLabel.Size = New Size(276, 44)
-
-            _openConfigBtn.Text = "Atur Koneksi"
-            _openConfigBtn.Size = New Size(108, 30)
-            _openConfigBtn.Location = New Point(292, 16)
-            _openConfigBtn.TabIndex = 2
-            AppTheme.StyleSecondaryButton(_openConfigBtn)
-            AddHandler _openConfigBtn.Click, AddressOf OnOpenConfigClick
+            _configMessageLabel.Size = New Size(_openConfigBtn.Left - 16, 44)
 
             _configBanner.Controls.Add(_configMessageLabel)
             _configBanner.Controls.Add(_openConfigBtn)
@@ -155,12 +155,12 @@ Namespace Forms
             _feedbackLabel.Visible = False
 
             _cancelButton.Text = "Tutup"
-            _cancelButton.Size = New Size(96, 36)
+            _cancelButton.Size = New Size(AppTheme.MeasureButtonWidth(_cancelButton.Text, AppTheme.FontBodyBold, 96, 28), 36)
             _cancelButton.DialogResult = DialogResult.Cancel
             _cancelButton.TabIndex = 8
             AppTheme.StyleSecondaryButton(_cancelButton)
 
-            _submitButton.Size = New Size(136, 36)
+            _submitButton.Size = New Size(AppTheme.MeasureButtonWidth("Buat Akun", AppTheme.FontBodyBold, 136, 28), 36)
             _submitButton.TabIndex = 7
             AppTheme.StylePrimaryButton(_submitButton)
             AddHandler _submitButton.Click, AddressOf OnSubmitClick
@@ -216,8 +216,9 @@ Namespace Forms
             _feedbackLabel.Location = New Point(24, topOffset + 148)
 
             Dim buttonsY = Math.Max(428, topOffset + 200)
-            _cancelButton.Location = New Point(196, buttonsY)
-            _submitButton.Location = New Point(300, buttonsY)
+            _submitButton.Width = AppTheme.MeasureButtonWidth(_submitButton.Text, AppTheme.FontBodyBold, 136, 28)
+            _submitButton.Location = New Point(436 - _submitButton.Width, buttonsY)
+            _cancelButton.Location = New Point(_submitButton.Left - _cancelButton.Width - 8, buttonsY)
             ClientSize = New Size(460, buttonsY + 58)
         End Sub
 

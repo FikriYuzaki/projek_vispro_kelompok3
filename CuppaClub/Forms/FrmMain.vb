@@ -54,7 +54,7 @@ Public Class FrmMain
 
     Private Sub BuildShell()
         _sidebarPanel.Dock = DockStyle.Left
-        _sidebarPanel.Width = 256
+        _sidebarPanel.Width = 268
         _sidebarPanel.BackColor = AppTheme.SidebarOat
         AddHandler _sidebarPanel.Paint, AddressOf OnSidebarPaint
 
@@ -106,8 +106,8 @@ Public Class FrmMain
         Dim tabIdx = 0
         For Each feature In FeatureRegistry.Features
             Dim navItem As New SidebarNavItem(feature) With {
-                .Width = 230,
-                .Height = 56,
+                .Width = 242,
+                .Height = 60,
                 .Margin = New Padding(0, 0, 0, 6),
                 .TabIndex = tabIdx
             }
@@ -120,7 +120,7 @@ Public Class FrmMain
 
         Dim bottomUtilityPanel As New Panel With {
             .Dock = DockStyle.Bottom,
-            .Height = 168,
+            .Height = 174,
             .BackColor = Color.Transparent,
             .Padding = New Padding(14, 12, 14, 14)
         }
@@ -131,7 +131,7 @@ Public Class FrmMain
                                              End Sub
 
         _sidebarConnBtn.Location = New Point(14, 12)
-        _sidebarConnBtn.Size = New Size(228, 34)
+        _sidebarConnBtn.Size = New Size(240, 34)
         _sidebarConnBtn.FlatStyle = FlatStyle.Flat
         _sidebarConnBtn.Font = AppTheme.FontCaptionBold
         _sidebarConnBtn.Cursor = Cursors.Hand
@@ -142,7 +142,7 @@ Public Class FrmMain
 
         Dim accountCard As New Panel With {
             .Location = New Point(14, 54),
-            .Size = New Size(228, 100),
+            .Size = New Size(240, 104),
             .BackColor = AppTheme.SurfaceMilk,
             .Padding = New Padding(12, 10, 12, 10)
         }
@@ -153,19 +153,19 @@ Public Class FrmMain
                                       End Sub
 
         _accountNameLabel.Location = New Point(12, 10)
-        _accountNameLabel.Size = New Size(204, 22)
+        _accountNameLabel.Size = New Size(216, 24)
         _accountNameLabel.Font = AppTheme.FontBodyBold
         _accountNameLabel.ForeColor = AppTheme.TextPrimary
         _accountNameLabel.AutoEllipsis = True
 
-        _accountRoleLabel.Location = New Point(12, 33)
-        _accountRoleLabel.Size = New Size(204, 18)
+        _accountRoleLabel.Location = New Point(12, 34)
+        _accountRoleLabel.Size = New Size(216, 20)
         _accountRoleLabel.Font = AppTheme.FontCaption
         _accountRoleLabel.ForeColor = AppTheme.TextSecondary
         _accountRoleLabel.AutoEllipsis = True
 
-        _accountActionBtn.Location = New Point(12, 58)
-        _accountActionBtn.Size = New Size(204, 30)
+        _accountActionBtn.Location = New Point(12, 60)
+        _accountActionBtn.Size = New Size(216, 32)
         _accountActionBtn.TabIndex = 11
         AddHandler _accountActionBtn.Click, AddressOf OnAccountActionClick
 
@@ -206,14 +206,16 @@ Public Class FrmMain
         _headerSubtitleLabel.ForeColor = AppTheme.TextSecondary
         _headerSubtitleLabel.AutoSize = True
 
-        _headerConnectionBtn.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         _headerConnectionBtn.Size = New Size(216, 32)
-        _headerConnectionBtn.Location = New Point(_headerPanel.Width - 240, 22)
+        _headerConnectionBtn.Location = New Point(_headerPanel.Width - _headerConnectionBtn.Width - 24, 22)
         _headerConnectionBtn.FlatStyle = FlatStyle.Flat
         _headerConnectionBtn.Font = AppTheme.FontCaptionBold
         _headerConnectionBtn.Cursor = Cursors.Hand
         _headerConnectionBtn.TabIndex = 12
         AddHandler _headerConnectionBtn.Click, AddressOf OnOpenConfigClick
+        AddHandler _headerPanel.Resize, Sub()
+                                            _headerConnectionBtn.Location = New Point(_headerPanel.ClientSize.Width - _headerConnectionBtn.Width - 24, 22)
+                                        End Sub
 
         _headerPanel.Controls.Add(_headerTitleLabel)
         _headerPanel.Controls.Add(_headerSubtitleLabel)
@@ -309,7 +311,7 @@ Public Class FrmMain
             AppTheme.StyleSecondaryButton(_accountActionBtn)
         Else
             _accountNameLabel.Text = "Tamu (Belum Masuk)"
-            _accountRoleLabel.Text = "Masuk untuk aksi akun atau staf"
+            _accountRoleLabel.Text = "Masuk untuk akun atau staf"
             _accountActionBtn.Text = "Masuk / Daftar"
             AppTheme.StylePrimaryButton(_accountActionBtn)
         End If
@@ -342,6 +344,9 @@ Public Class FrmMain
             _headerConnectionBtn.FlatAppearance.BorderSize = 1
             _headerConnectionBtn.FlatAppearance.BorderColor = AppTheme.ControlBorder
         End If
+
+        _headerConnectionBtn.Width = AppTheme.MeasureButtonWidth(_headerConnectionBtn.Text, AppTheme.FontCaptionBold, 210, 28)
+        _headerConnectionBtn.Location = New Point(_headerPanel.ClientSize.Width - _headerConnectionBtn.Width - 24, 22)
     End Sub
 
     Private Sub OnSidebarPaint(sender As Object, e As PaintEventArgs)
@@ -490,9 +495,9 @@ Public Class FrmMain
                 End Using
             End If
 
-            Dim titleColor = If(_isSelected, AppTheme.TextPrimary, AppTheme.TextPrimary)
+            Dim titleColor = AppTheme.TextPrimary
             Dim titleFont = If(_isSelected, AppTheme.FontBodyBold, AppTheme.FontBody)
-            Dim titleRect As New Rectangle(14, 7, Width - 22, 22)
+            Dim titleRect As New Rectangle(14, 8, Width - 22, 24)
             TextRenderer.DrawText(
                 e.Graphics,
                 Feature.DisplayName,
@@ -512,8 +517,8 @@ Public Class FrmMain
                 statusFg = AppTheme.WarningText
             End If
 
-            Dim badgeWidth = TextRenderer.MeasureText(statusText, AppTheme.FontCaptionBold).Width + 10
-            Dim badgeRect As New Rectangle(14, 31, badgeWidth, 18)
+            Dim badgeWidth = TextRenderer.MeasureText(statusText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 14
+            Dim badgeRect As New Rectangle(14, 34, badgeWidth, 20)
             Using badgePath = AppTheme.CreateRoundedRectPath(badgeRect, 4)
                 Using badgeBrush As New SolidBrush(statusBg)
                     e.Graphics.FillPath(badgeBrush, badgePath)
@@ -527,7 +532,7 @@ Public Class FrmMain
                 statusFg,
                 TextFormatFlags.HorizontalCenter Or TextFormatFlags.VerticalCenter)
 
-            Dim ownerRect As New Rectangle(badgeRect.Right + 8, 31, Width - badgeRect.Right - 14, 18)
+            Dim ownerRect As New Rectangle(badgeRect.Right + 8, 34, Width - badgeRect.Right - 14, 20)
             TextRenderer.DrawText(
                 e.Graphics,
                 Feature.Owner,

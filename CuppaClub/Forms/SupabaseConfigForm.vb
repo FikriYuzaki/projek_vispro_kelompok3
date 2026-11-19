@@ -124,19 +124,19 @@ Namespace Forms
             _statusLabel.Font = AppTheme.FontCaptionBold
             _statusLabel.Visible = False
 
-            _cancelButton.Text = "Batal"
-            _cancelButton.Size = New Size(100, 34)
-            _cancelButton.Location = New Point(292, 380)
-            _cancelButton.DialogResult = DialogResult.Cancel
-            _cancelButton.TabIndex = 4
-            AppTheme.StyleSecondaryButton(_cancelButton)
-
             _saveButton.Text = "Uji & Simpan"
-            _saveButton.Size = New Size(116, 34)
-            _saveButton.Location = New Point(400, 380)
+            _saveButton.Size = New Size(AppTheme.MeasureButtonWidth(_saveButton.Text, AppTheme.FontBodyBold, 136, 28), 34)
+            _saveButton.Location = New Point(516 - _saveButton.Width, 380)
             _saveButton.TabIndex = 3
             AppTheme.StylePrimaryButton(_saveButton)
             AddHandler _saveButton.Click, AddressOf OnSaveClick
+
+            _cancelButton.Text = "Batal"
+            _cancelButton.Size = New Size(AppTheme.MeasureButtonWidth(_cancelButton.Text, AppTheme.FontBodyBold, 100, 28), 34)
+            _cancelButton.Location = New Point(_saveButton.Left - _cancelButton.Width - 8, 380)
+            _cancelButton.DialogResult = DialogResult.Cancel
+            _cancelButton.TabIndex = 4
+            AppTheme.StyleSecondaryButton(_cancelButton)
 
             AcceptButton = _saveButton
             CancelButton = _cancelButton

@@ -142,11 +142,13 @@ Namespace Forms
             _imageUrlTextBox.TabIndex = 4
 
             _uploadPhotoBtn.Text = "Unggah Foto..."
-            _uploadPhotoBtn.Location = New Point(368, 355)
-            _uploadPhotoBtn.Size = New Size(128, 30)
+            _uploadPhotoBtn.Size = New Size(AppTheme.MeasureButtonWidth(_uploadPhotoBtn.Text, AppTheme.FontBodyBold, 140, 28), 30)
+            _uploadPhotoBtn.Location = New Point(496 - _uploadPhotoBtn.Width, 355)
             _uploadPhotoBtn.TabIndex = 5
             AppTheme.StyleSecondaryButton(_uploadPhotoBtn)
             AddHandler _uploadPhotoBtn.Click, AddressOf OnUploadPhotoClick
+
+            _imageUrlTextBox.Width = _uploadPhotoBtn.Left - 32
 
             _availableCheckBox.Text = "Tersedia untuk dipesan"
             _availableCheckBox.Location = New Point(24, 398)
@@ -167,19 +169,19 @@ Namespace Forms
             _statusLabel.Padding = New Padding(10, 6, 10, 6)
             _statusLabel.Visible = False
 
-            _cancelButton.Text = "Batal"
-            _cancelButton.Location = New Point(268, 508)
-            _cancelButton.Size = New Size(104, 36)
-            _cancelButton.DialogResult = DialogResult.Cancel
-            _cancelButton.TabIndex = 9
-            AppTheme.StyleSecondaryButton(_cancelButton)
-
             _saveButton.Text = If(isNew, "Simpan Menu", "Simpan Perubahan")
-            _saveButton.Location = New Point(380, 508)
-            _saveButton.Size = New Size(116, 36)
+            _saveButton.Size = New Size(AppTheme.MeasureButtonWidth(_saveButton.Text, AppTheme.FontBodyBold, 164, 28), 36)
+            _saveButton.Location = New Point(496 - _saveButton.Width, 508)
             _saveButton.TabIndex = 8
             AppTheme.StylePrimaryButton(_saveButton)
             AddHandler _saveButton.Click, AddressOf OnSaveClick
+
+            _cancelButton.Text = "Batal"
+            _cancelButton.Size = New Size(AppTheme.MeasureButtonWidth(_cancelButton.Text, AppTheme.FontBodyBold, 100, 28), 36)
+            _cancelButton.Location = New Point(_saveButton.Left - _cancelButton.Width - 8, 508)
+            _cancelButton.DialogResult = DialogResult.Cancel
+            _cancelButton.TabIndex = 9
+            AppTheme.StyleSecondaryButton(_cancelButton)
 
             AcceptButton = _saveButton
             CancelButton = _cancelButton
