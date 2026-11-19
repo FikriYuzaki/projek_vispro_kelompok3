@@ -537,3 +537,21 @@ on storage.objects
 for delete
 to authenticated
 using (bucket_id = 'menu-photos' and public.is_staff());
+
+-- 9. Explicit least-privilege table & function grants (required alongside RLS)
+grant usage on schema public to anon, authenticated;
+
+grant select on public.menu_items, public.menu_options, public.reward_catalog to anon;
+
+grant select, update on public.profiles to authenticated;
+grant select, insert, update, delete on public.menu_items, public.menu_options, public.reward_catalog to authenticated;
+grant select, insert, update on public.order_rooms to authenticated;
+grant select, insert on public.room_members to authenticated;
+grant select, insert, update on public.orders to authenticated;
+grant select, insert on public.order_items to authenticated;
+grant select on public.order_status_history to authenticated;
+grant select on public.reward_transactions to authenticated;
+
+grant execute on function public.is_staff() to anon, authenticated;
+grant execute on function public.is_room_member(uuid) to authenticated;
+
