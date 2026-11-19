@@ -7,7 +7,7 @@ Imports CuppaClub.Core
 Imports CuppaClub.Forms
 Imports CuppaClub.Services
 
-Public Class MainForm
+Public Class FrmMain
     Inherits Form
 
     Private ReadOnly _authService As New AuthService()
