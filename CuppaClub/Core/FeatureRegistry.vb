@@ -29,7 +29,8 @@ Namespace Core
                 .Id = "menu-gallery",
                 .DisplayName = "Café Menu Gallery",
                 .Owner = "Fikri",
-                .Status = FeatureStatus.ComingSoon,
+                .Status = FeatureStatus.Available,
+                .CreateView = Function() New MenuGalleryControl(),
                 .Summary = "Katalog kopi, non-kopi, pastry, dan dessert dengan foto produk, pencarian, filter kategori, dan pengelolaan ketersediaan oleh staf.",
                 .PlannedItems = {
                     "Katalog foto minuman & pastry dari Supabase",

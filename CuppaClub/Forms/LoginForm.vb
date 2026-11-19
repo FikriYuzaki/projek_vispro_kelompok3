@@ -10,6 +10,7 @@ Namespace Forms
 
         Private ReadOnly _authService As New AuthService()
         Private _isRegisterMode As Boolean
+        Private _showConfigBanner As Boolean
 
         Private ReadOnly _signInModeBtn As New Button()
         Private ReadOnly _registerModeBtn As New Button()
@@ -50,7 +51,7 @@ Namespace Forms
                 .Text = "Masuk ke CuppaClub",
                 .Font = AppTheme.FontPageTitle,
                 .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(24, 20),
+                .Location = New Point(24, 16),
                 .AutoSize = True
             }
 
@@ -58,13 +59,13 @@ Namespace Forms
                 .Text = "Gunakan akun pelanggan atau akun staf yang terdaftar di Supabase Auth.",
                 .Font = AppTheme.FontCaption,
                 .ForeColor = AppTheme.TextSecondary,
-                .Location = New Point(24, 52),
+                .Location = New Point(24, 56),
                 .MaximumSize = New Size(412, 0),
                 .AutoSize = True
             }
 
             _signInModeBtn.Text = "Masuk"
-            _signInModeBtn.Location = New Point(24, 84)
+            _signInModeBtn.Location = New Point(24, 102)
             _signInModeBtn.Size = New Size(120, 32)
             _signInModeBtn.TabIndex = 0
             AddHandler _signInModeBtn.Click, Sub()
@@ -74,7 +75,7 @@ Namespace Forms
                                              End Sub
 
             _registerModeBtn.Text = "Daftar Akun"
-            _registerModeBtn.Location = New Point(152, 84)
+            _registerModeBtn.Location = New Point(152, 102)
             _registerModeBtn.Size = New Size(120, 32)
             _registerModeBtn.TabIndex = 1
             AddHandler _registerModeBtn.Click, Sub()
@@ -83,7 +84,7 @@ Namespace Forms
                                                    UpdateModeUi()
                                                End Sub
 
-            _configBanner.Location = New Point(24, 128)
+            _configBanner.Location = New Point(24, 144)
             _configBanner.Size = New Size(412, 62)
             _configBanner.BackColor = AppTheme.WarningTint
             _configBanner.Padding = New Padding(10, 8, 10, 8)
@@ -200,7 +201,7 @@ Namespace Forms
             _nameLabel.Visible = _isRegisterMode
             _nameTextBox.Visible = _isRegisterMode
 
-            Dim topOffset = If(_configBanner.Visible, 200, 132)
+            Dim topOffset = If(_showConfigBanner, 218, 146)
             If _isRegisterMode Then
                 _nameLabel.Location = New Point(24, topOffset)
                 _nameTextBox.Location = New Point(24, topOffset + 22)
@@ -222,7 +223,8 @@ Namespace Forms
 
         Private Sub RefreshConfigBanner()
             Dim configured = SupabaseClientProvider.IsConfigured
-            _configBanner.Visible = Not configured
+            _showConfigBanner = Not configured
+            _configBanner.Visible = _showConfigBanner
             _submitButton.Enabled = configured
             UpdateModeUi()
         End Sub

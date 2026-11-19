@@ -60,25 +60,27 @@ Public Class MainForm
 
         Dim brandPanel As New Panel With {
             .Dock = DockStyle.Top,
-            .Height = 82,
+            .Height = 84,
             .BackColor = Color.Transparent,
             .Padding = New Padding(18, 18, 16, 12)
         }
         AddHandler brandPanel.Paint, AddressOf OnBrandPanelPaint
 
         Dim brandTitle As New Label With {
+            .Name = "BrandTitle",
             .Text = "CuppaClub",
             .Font = AppTheme.FontBrand,
             .ForeColor = AppTheme.TextPrimary,
-            .Location = New Point(64, 18),
+            .Location = New Point(64, 16),
             .AutoSize = True
         }
 
         Dim brandSubtitle As New Label With {
+            .Name = "BrandSubtitle",
             .Text = "Sweet Cafe Desktop",
             .Font = AppTheme.FontCaption,
             .ForeColor = AppTheme.TextSecondary,
-            .Location = New Point(64, 44),
+            .Location = New Point(64, 50),
             .AutoSize = True
         }
 
@@ -185,28 +187,28 @@ Public Class MainForm
         }
 
         _headerPanel.Dock = DockStyle.Top
-        _headerPanel.Height = 68
+        _headerPanel.Height = 76
         _headerPanel.BackColor = AppTheme.SurfaceMilk
-        _headerPanel.Padding = New Padding(24, 12, 24, 12)
+        _headerPanel.Padding = New Padding(24, 10, 24, 10)
         AddHandler _headerPanel.Paint, Sub(s, e)
                                            Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
                                                e.Graphics.DrawLine(pen, 0, _headerPanel.Height - 1, _headerPanel.Width, _headerPanel.Height - 1)
                                            End Using
                                        End Sub
 
-        _headerTitleLabel.Location = New Point(24, 10)
+        _headerTitleLabel.Location = New Point(24, 8)
         _headerTitleLabel.Font = AppTheme.FontPageTitle
         _headerTitleLabel.ForeColor = AppTheme.TextPrimary
         _headerTitleLabel.AutoSize = True
 
-        _headerSubtitleLabel.Location = New Point(25, 40)
+        _headerSubtitleLabel.Location = New Point(25, 46)
         _headerSubtitleLabel.Font = AppTheme.FontCaption
         _headerSubtitleLabel.ForeColor = AppTheme.TextSecondary
         _headerSubtitleLabel.AutoSize = True
 
         _headerConnectionBtn.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         _headerConnectionBtn.Size = New Size(216, 32)
-        _headerConnectionBtn.Location = New Point(_headerPanel.Width - 240, 18)
+        _headerConnectionBtn.Location = New Point(_headerPanel.Width - 240, 22)
         _headerConnectionBtn.FlatStyle = FlatStyle.Flat
         _headerConnectionBtn.Font = AppTheme.FontCaptionBold
         _headerConnectionBtn.Cursor = Cursors.Hand
