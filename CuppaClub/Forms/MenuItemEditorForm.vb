@@ -11,201 +11,63 @@ Namespace Forms
         Inherits Form
 
         Private ReadOnly _menuService As New MenuService()
-        Private ReadOnly _editingId As String
-
-        Private ReadOnly _nameTextBox As New TextBox()
-        Private ReadOnly _categoryCombo As New ComboBox()
-        Private ReadOnly _priceNumeric As New NumericUpDown()
-        Private ReadOnly _descriptionTextBox As New TextBox()
-        Private ReadOnly _imageUrlTextBox As New TextBox()
-        Private ReadOnly _uploadPhotoBtn As New Button()
-        Private ReadOnly _availableCheckBox As New CheckBox()
-        Private ReadOnly _customizableCheckBox As New CheckBox()
-        Private ReadOnly _statusLabel As New Label()
-        Private ReadOnly _saveButton As New Button()
-        Private ReadOnly _cancelButton As New Button()
+        Private _editingId As String
 
         <Browsable(False)>
         <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
         Public Property SavedItem As MenuItem
 
-        Public Sub New(Optional existingItem As MenuItem = Nothing)
-            _editingId = If(existingItem IsNot Nothing, existingItem.Id, Nothing)
+        Public Sub New()
+            InitializeComponent()
 
-            Text = If(existingItem Is Nothing, "Tambah Item Menu - CuppaClub", "Edit Item Menu - CuppaClub")
-            FormBorderStyle = FormBorderStyle.FixedDialog
-            MaximizeBox = False
-            MinimizeBox = False
-            StartPosition = FormStartPosition.CenterParent
-            ClientSize = New Size(520, 564)
-            BackColor = AppTheme.CanvasCream
-            ForeColor = AppTheme.TextPrimary
-            Font = AppTheme.FontBody
-            KeyPreview = True
+            If LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then
+                Return
+            End If
 
-            BuildUi(existingItem Is Nothing)
+            WireRuntimeBehavior()
+            ApplyButtonSizing()
+        End Sub
+
+        Public Sub New(existingItem As MenuItem)
+            Me.New()
             If existingItem IsNot Nothing Then
-                PopulateFields(existingItem)
+                ConfigureEditMode(existingItem)
             End If
         End Sub
 
-        Private Sub BuildUi(isNew As Boolean)
-            Dim titleLabel As New Label With {
-                .Text = If(isNew, "Tambah Item Menu Baru", "Perbarui Detail Menu"),
-                .Font = AppTheme.FontPageTitle,
-                .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(24, 16),
-                .AutoSize = True
-            }
-
-            Dim subtitleLabel As New Label With {
-                .Text = "Perubahan langsung disimpan ke tabel menu_items di Supabase sesuai izin staf.",
-                .Font = AppTheme.FontCaption,
-                .ForeColor = AppTheme.TextSecondary,
-                .Location = New Point(24, 56),
-                .MaximumSize = New Size(472, 0),
-                .AutoSize = True
-            }
-
-            Dim nameLabel As New Label With {
-                .Text = "Nama Menu",
-                .Font = AppTheme.FontBodyBold,
-                .Location = New Point(24, 102),
-                .AutoSize = True
-            }
-
-            _nameTextBox.Location = New Point(24, 124)
-            _nameTextBox.Size = New Size(472, 28)
-            _nameTextBox.BackColor = AppTheme.SurfaceMilk
-            _nameTextBox.PlaceholderText = "Contoh: Caramel Oat Latte"
-            _nameTextBox.TabIndex = 0
-
-            Dim categoryLabel As New Label With {
-                .Text = "Kategori",
-                .Font = AppTheme.FontBodyBold,
-                .Location = New Point(24, 164),
-                .AutoSize = True
-            }
-
-            _categoryCombo.Location = New Point(24, 186)
-            _categoryCombo.Size = New Size(224, 28)
-            _categoryCombo.DropDownStyle = ComboBoxStyle.DropDownList
-            _categoryCombo.BackColor = AppTheme.SurfaceMilk
+        Private Sub WireRuntimeBehavior()
+            _categoryCombo.Items.Clear()
             _categoryCombo.Items.AddRange(MenuItem.Categories)
-            _categoryCombo.SelectedIndex = 0
-            _categoryCombo.TabIndex = 1
+            If _categoryCombo.Items.Count > 0 Then
+                _categoryCombo.SelectedIndex = 0
+            End If
 
-            Dim priceLabel As New Label With {
-                .Text = "Harga Dasar (Rp)",
-                .Font = AppTheme.FontBodyBold,
-                .Location = New Point(268, 164),
-                .AutoSize = True
-            }
-
-            _priceNumeric.Location = New Point(268, 186)
-            _priceNumeric.Size = New Size(228, 28)
-            _priceNumeric.BackColor = AppTheme.SurfaceMilk
-            _priceNumeric.Minimum = 0D
-            _priceNumeric.Maximum = 10000000D
-            _priceNumeric.Increment = 1000D
-            _priceNumeric.ThousandsSeparator = True
-            _priceNumeric.Value = 25000D
-            _priceNumeric.TabIndex = 2
-
-            Dim descLabel As New Label With {
-                .Text = "Deskripsi",
-                .Font = AppTheme.FontBodyBold,
-                .Location = New Point(24, 226),
-                .AutoSize = True
-            }
-
-            _descriptionTextBox.Location = New Point(24, 248)
-            _descriptionTextBox.Size = New Size(472, 74)
-            _descriptionTextBox.Multiline = True
-            _descriptionTextBox.AcceptsReturn = False
-            _descriptionTextBox.ScrollBars = ScrollBars.Vertical
-            _descriptionTextBox.BackColor = AppTheme.SurfaceMilk
-            _descriptionTextBox.PlaceholderText = "Deskripsi singkat rasa, penyajian, atau bahan utama..."
-            _descriptionTextBox.TabIndex = 3
-
-            Dim imageLabel As New Label With {
-                .Text = "Foto Produk (URL atau Unggah ke Supabase Storage)",
-                .Font = AppTheme.FontBodyBold,
-                .Location = New Point(24, 334),
-                .AutoSize = True
-            }
-
-            _imageUrlTextBox.Location = New Point(24, 356)
-            _imageUrlTextBox.Size = New Size(336, 28)
-            _imageUrlTextBox.BackColor = AppTheme.SurfaceMilk
-            _imageUrlTextBox.PlaceholderText = "https://... (opsional)"
-            _imageUrlTextBox.TabIndex = 4
-
-            _uploadPhotoBtn.Text = "Unggah Foto..."
-            _uploadPhotoBtn.Size = New Size(AppTheme.MeasureButtonWidth(_uploadPhotoBtn.Text, AppTheme.FontBodyBold, 140, 28), 30)
-            _uploadPhotoBtn.Location = New Point(496 - _uploadPhotoBtn.Width, 355)
-            _uploadPhotoBtn.TabIndex = 5
-            AppTheme.StyleSecondaryButton(_uploadPhotoBtn)
             AddHandler _uploadPhotoBtn.Click, AddressOf OnUploadPhotoClick
+            AddHandler _saveButton.Click, AddressOf OnSaveClick
+        End Sub
 
+        Private Sub ApplyButtonSizing()
+            _uploadPhotoBtn.Width = AppTheme.MeasureButtonWidth(_uploadPhotoBtn.Text, AppTheme.FontBodyBold, 140, 28)
+            _uploadPhotoBtn.Location = New Point(496 - _uploadPhotoBtn.Width, 355)
             _imageUrlTextBox.Width = _uploadPhotoBtn.Left - 32
 
-            _availableCheckBox.Text = "Tersedia untuk dipesan"
-            _availableCheckBox.Location = New Point(24, 398)
-            _availableCheckBox.AutoSize = True
-            _availableCheckBox.Checked = True
-            _availableCheckBox.Cursor = Cursors.Hand
-            _availableCheckBox.TabIndex = 6
-
-            _customizableCheckBox.Text = "Mendukung kustomisasi (My Drink Creator)"
-            _customizableCheckBox.Location = New Point(24, 426)
-            _customizableCheckBox.AutoSize = True
-            _customizableCheckBox.Cursor = Cursors.Hand
-            _customizableCheckBox.TabIndex = 7
-
-            _statusLabel.Location = New Point(24, 460)
-            _statusLabel.Size = New Size(472, 38)
-            _statusLabel.Font = AppTheme.FontCaptionBold
-            _statusLabel.Padding = New Padding(10, 6, 10, 6)
-            _statusLabel.Visible = False
-
-            _saveButton.Text = If(isNew, "Simpan Menu", "Simpan Perubahan")
-            _saveButton.Size = New Size(AppTheme.MeasureButtonWidth(_saveButton.Text, AppTheme.FontBodyBold, 164, 28), 36)
+            _saveButton.Width = AppTheme.MeasureButtonWidth(_saveButton.Text, AppTheme.FontBodyBold, 164, 28)
             _saveButton.Location = New Point(496 - _saveButton.Width, 508)
-            _saveButton.TabIndex = 8
-            AppTheme.StylePrimaryButton(_saveButton)
-            AddHandler _saveButton.Click, AddressOf OnSaveClick
-
-            _cancelButton.Text = "Batal"
-            _cancelButton.Size = New Size(AppTheme.MeasureButtonWidth(_cancelButton.Text, AppTheme.FontBodyBold, 100, 28), 36)
+            _cancelButton.Width = AppTheme.MeasureButtonWidth(_cancelButton.Text, AppTheme.FontBodyBold, 100, 28)
             _cancelButton.Location = New Point(_saveButton.Left - _cancelButton.Width - 8, 508)
-            _cancelButton.DialogResult = DialogResult.Cancel
-            _cancelButton.TabIndex = 9
+
+            AppTheme.StyleSecondaryButton(_uploadPhotoBtn)
             AppTheme.StyleSecondaryButton(_cancelButton)
+            AppTheme.StylePrimaryButton(_saveButton)
+        End Sub
 
-            AcceptButton = _saveButton
-            CancelButton = _cancelButton
-
-            Controls.AddRange({
-                titleLabel,
-                subtitleLabel,
-                nameLabel,
-                _nameTextBox,
-                categoryLabel,
-                _categoryCombo,
-                priceLabel,
-                _priceNumeric,
-                descLabel,
-                _descriptionTextBox,
-                imageLabel,
-                _imageUrlTextBox,
-                _uploadPhotoBtn,
-                _availableCheckBox,
-                _customizableCheckBox,
-                _statusLabel,
-                _cancelButton,
-                _saveButton
-            })
+        Private Sub ConfigureEditMode(existingItem As MenuItem)
+            _editingId = existingItem.Id
+            Text = "Edit Item Menu - CuppaClub"
+            _titleLabel.Text = "Perbarui Detail Menu"
+            _saveButton.Text = "Simpan Perubahan"
+            ApplyButtonSizing()
+            PopulateFields(existingItem)
         End Sub
 
         Private Sub PopulateFields(item As MenuItem)

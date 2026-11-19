@@ -6,9 +6,9 @@ Imports System.ComponentModel
 Imports System.Drawing.Drawing2D
 Imports System.IO
 Imports System.Net.Http
+Imports System.Reflection
 Imports CuppaClub.Core
 Imports CuppaClub.Forms
-Imports CuppaClub.Models
 Imports CuppaClub.Services
 
 Namespace Features
@@ -38,33 +38,7 @@ Namespace Features
         Private _selectedCategory As String = "Semua"
         Private _selectedItemId As String = String.Empty
         Private _loadVersion As Integer
-
-        Private ReadOnly _toolbarPanel As New Panel()
-        Private ReadOnly _searchLabel As New Label()
-        Private ReadOnly _categoryLabel As New Label()
-        Private ReadOnly _searchTextBox As New TextBox()
-        Private ReadOnly _clearSearchBtn As New Button()
-        Private ReadOnly _showUnavailableCheck As New CheckBox()
-        Private ReadOnly _reloadBtn As New Button()
-        Private ReadOnly _addMenuBtn As New Button()
-        Private ReadOnly _resultCountLabel As New Label()
-
-        Private ReadOnly _workspaceHost As New Panel()
-        Private ReadOnly _catalogPane As New Panel()
-        Private ReadOnly _countStripPanel As New Panel()
-        Private ReadOnly _cardsPanel As New BufferedFlowLayoutPanel()
-        Private ReadOnly _detailPanel As New Panel()
-        Private ReadOnly _detailPhotoBox As New PictureBox()
-        Private ReadOnly _detailCategoryLabel As New Label()
-        Private ReadOnly _detailAvailabilityTag As New Label()
-        Private ReadOnly _detailTitleLabel As New Label()
-        Private ReadOnly _detailPriceLabel As New Label()
-        Private ReadOnly _detailDescriptionLabel As New Label()
-        Private ReadOnly _detailCustomNoteLabel As New Label()
-        Private ReadOnly _staffActionsPanel As New Panel()
-        Private ReadOnly _editMenuBtn As New Button()
-        Private ReadOnly _toggleAvailabilityBtn As New Button()
-        Private ReadOnly _detailStatusBanner As New Label()
+        Private _runtimeInitialized As Boolean
 
         Private ReadOnly _stateOverlay As New Panel()
         Private ReadOnly _stateCard As New Panel()
@@ -76,12 +50,14 @@ Namespace Features
         Private _currentOverlayState As GalleryViewState = GalleryViewState.Loading
 
         Public Sub New()
-            DoubleBuffered = True
-            BackColor = AppTheme.CanvasCream
-            ForeColor = AppTheme.TextPrimary
-            Font = AppTheme.FontBody
+            InitializeComponent()
 
-            BuildUi()
+            If LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then
+                Return
+            End If
+
+            _runtimeInitialized = True
+            WireRuntimeBehavior()
 
             AddHandler AppSession.SessionChanged, AddressOf OnSessionChanged
             AddHandler SupabaseClientProvider.ConfigurationChanged, AddressOf OnConfigurationChanged
@@ -90,108 +66,64 @@ Namespace Features
             LoadMenuAsync()
         End Sub
 
-        Private Sub BuildUi()
-            BuildToolbar()
-            BuildWorkspace()
-            BuildStateOverlay()
+        Private Sub WireRuntimeBehavior()
+            GetType(Control).GetProperty("DoubleBuffered", BindingFlags.Instance Or BindingFlags.NonPublic)?.SetValue(_cardsPanel, True, Nothing)
 
-            Controls.Add(_workspaceHost)
-            Controls.Add(_toolbarPanel)
-        End Sub
-
-        Private Sub BuildToolbar()
-            _toolbarPanel.Dock = DockStyle.Top
-            _toolbarPanel.Height = 104
-            _toolbarPanel.BackColor = AppTheme.SurfaceMilk
             AddHandler _toolbarPanel.Paint, Sub(s, e)
                                                 Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
                                                     e.Graphics.DrawLine(pen, 0, _toolbarPanel.Height - 1, _toolbarPanel.Width, _toolbarPanel.Height - 1)
                                                 End Using
                                             End Sub
             AddHandler _toolbarPanel.Resize, Sub() LayoutToolbar()
+            AddHandler _detailPanel.Paint, Sub(s, e)
+                                               Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
+                                                   e.Graphics.DrawLine(pen, 0, 0, 0, _detailPanel.Height)
+                                               End Using
+                                           End Sub
+            AddHandler _detailPhotoBox.Paint, AddressOf OnDetailPhotoPaint
 
-            _searchLabel.Text = "Cari menu"
-            _searchLabel.Font = AppTheme.FontBodyBold
-            _searchLabel.ForeColor = AppTheme.TextPrimary
-            _searchLabel.Location = New Point(20, 16)
-            _searchLabel.AutoSize = True
-
-            _categoryLabel.Text = "Kategori"
-            _categoryLabel.Font = AppTheme.FontBodyBold
-            _categoryLabel.ForeColor = AppTheme.TextPrimary
-            _categoryLabel.Location = New Point(20, 61)
-            _categoryLabel.AutoSize = True
-
-            _searchTextBox.Height = 28
-            _searchTextBox.BackColor = AppTheme.CanvasCream
-            _searchTextBox.ForeColor = AppTheme.TextPrimary
-            _searchTextBox.PlaceholderText = "Nama kopi, pastry, atau bahan..."
-            _searchTextBox.TabIndex = 0
-            AddHandler _searchTextBox.TextChanged, AddressOf OnSearchTextChanged
-
-            _clearSearchBtn.Text = "Bersihkan"
-            _clearSearchBtn.Height = 30
             _clearSearchBtn.Width = AppTheme.MeasureButtonWidth(_clearSearchBtn.Text, AppTheme.FontBodyBold, 98, 28)
-            _clearSearchBtn.Enabled = False
-            _clearSearchBtn.TabIndex = 1
+            _addMenuBtn.Width = AppTheme.MeasureButtonWidth(_addMenuBtn.Text, AppTheme.FontBodyBold, 142, 28)
+            _reloadBtn.Width = AppTheme.MeasureButtonWidth(_reloadBtn.Text, AppTheme.FontBodyBold, 114, 28)
+            _editMenuBtn.Width = AppTheme.MeasureButtonWidth(_editMenuBtn.Text, AppTheme.FontBodyBold, 114, 24)
+            _toggleAvailabilityBtn.Location = New Point(_editMenuBtn.Right + 8, 4)
+            _toggleAvailabilityBtn.Width = 296 - _toggleAvailabilityBtn.Left
+
             AppTheme.StyleSecondaryButton(_clearSearchBtn)
+            AppTheme.StylePrimaryButton(_addMenuBtn)
+            AppTheme.StyleSecondaryButton(_reloadBtn)
+            AppTheme.StylePrimaryButton(_editMenuBtn)
+            AppTheme.StyleSecondaryButton(_toggleAvailabilityBtn)
+
+            AddHandler _searchTextBox.TextChanged, AddressOf OnSearchTextChanged
             AddHandler _clearSearchBtn.Click, Sub()
                                                   _searchTextBox.Clear()
                                                   _searchTextBox.Focus()
                                               End Sub
-
-            _showUnavailableCheck.Text = "Tampilkan habis"
-            _showUnavailableCheck.AutoSize = True
-            _showUnavailableCheck.Cursor = Cursors.Hand
-            _showUnavailableCheck.TabIndex = 7
             AddHandler _showUnavailableCheck.CheckedChanged, Sub() ApplyFiltersAndRender()
-
-            _addMenuBtn.Text = "+ Tambah Menu"
-            _addMenuBtn.Height = 32
-            _addMenuBtn.Width = AppTheme.MeasureButtonWidth(_addMenuBtn.Text, AppTheme.FontBodyBold, 142, 28)
-            _addMenuBtn.TabIndex = 2
-            AppTheme.StylePrimaryButton(_addMenuBtn)
             AddHandler _addMenuBtn.Click, AddressOf OnAddMenuClick
-
-            _reloadBtn.Text = "Muat Ulang"
-            _reloadBtn.Height = 32
-            _reloadBtn.Width = AppTheme.MeasureButtonWidth(_reloadBtn.Text, AppTheme.FontBodyBold, 114, 28)
-            _reloadBtn.TabIndex = 3
-            AppTheme.StyleSecondaryButton(_reloadBtn)
             AddHandler _reloadBtn.Click, Sub() LoadMenuAsync()
+            AddHandler _editMenuBtn.Click, AddressOf OnEditSelectedClick
+            AddHandler _toggleAvailabilityBtn.Click, AddressOf OnToggleAvailabilityClick
 
-            Dim categoryNames As New List(Of String) From {"Semua"}
-            categoryNames.AddRange(Models.MenuItem.Categories)
+            _categoryButtons("Semua") = _catAllBtn
+            _categoryButtons("Coffee") = _catCoffeeBtn
+            _categoryButtons("Non-Coffee") = _catNonCoffeeBtn
+            _categoryButtons("Pastry") = _catPastryBtn
+            _categoryButtons("Dessert") = _catDessertBtn
 
-            Dim catTabIdx = 4
-            For Each catName In categoryNames
-                Dim btn As New Button With {
-                    .Text = catName,
-                    .Height = 32,
-                    .Width = AppTheme.MeasureButtonWidth(catName, AppTheme.FontBodyBold, 72, 24),
-                    .TabIndex = catTabIdx
-                }
-                catTabIdx += 1
-                Dim captured = catName
-                AddHandler btn.Click, Sub()
-                                          _selectedCategory = captured
-                                          UpdateCategoryButtonStyles()
-                                          ApplyFiltersAndRender()
-                                      End Sub
-                _categoryButtons(catName) = btn
-                _toolbarPanel.Controls.Add(btn)
+            For Each kvp In _categoryButtons
+                Dim captured = kvp.Key
+                kvp.Value.Width = AppTheme.MeasureButtonWidth(kvp.Value.Text, AppTheme.FontBodyBold, 72, 24)
+                AddHandler kvp.Value.Click, Sub()
+                                                _selectedCategory = captured
+                                                UpdateCategoryButtonStyles()
+                                                ApplyFiltersAndRender()
+                                            End Sub
             Next
 
-            _toolbarPanel.Controls.AddRange({
-                _searchLabel,
-                _searchTextBox,
-                _clearSearchBtn,
-                _showUnavailableCheck,
-                _addMenuBtn,
-                _reloadBtn,
-                _categoryLabel
-            })
-
+            _countStripPanel.Visible = False
+            BuildStateOverlay()
             UpdateCategoryButtonStyles()
             LayoutToolbar()
         End Sub
@@ -223,143 +155,6 @@ Namespace Features
 
             Dim checkWidth = _showUnavailableCheck.PreferredSize.Width
             _showUnavailableCheck.Location = New Point(Math.Max(xPos + 8, w - checkWidth - 20), 61)
-        End Sub
-
-        Private Sub BuildWorkspace()
-            _workspaceHost.Dock = DockStyle.Fill
-            _workspaceHost.BackColor = AppTheme.CanvasCream
-
-            _catalogPane.Dock = DockStyle.Fill
-            _catalogPane.BackColor = AppTheme.CanvasCream
-
-            _countStripPanel.Dock = DockStyle.Top
-            _countStripPanel.Height = 30
-            _countStripPanel.BackColor = AppTheme.CanvasCream
-            _countStripPanel.Padding = New Padding(20, 8, 12, 0)
-            _countStripPanel.Visible = False
-
-            _resultCountLabel.Location = New Point(20, 8)
-            _resultCountLabel.AutoSize = True
-            _resultCountLabel.Font = AppTheme.FontCaptionBold
-            _resultCountLabel.ForeColor = AppTheme.TextSecondary
-            _countStripPanel.Controls.Add(_resultCountLabel)
-
-            _cardsPanel.Dock = DockStyle.Fill
-            _cardsPanel.BackColor = AppTheme.CanvasCream
-            _cardsPanel.AutoScroll = True
-            _cardsPanel.WrapContents = True
-            _cardsPanel.FlowDirection = FlowDirection.LeftToRight
-            _cardsPanel.Padding = New Padding(20, 10, 10, 20)
-
-            _catalogPane.Controls.Add(_cardsPanel)
-            _catalogPane.Controls.Add(_countStripPanel)
-
-            _detailPanel.Dock = DockStyle.Right
-            _detailPanel.Width = 356
-            _detailPanel.BackColor = AppTheme.SurfaceMilk
-            _detailPanel.AutoScroll = True
-            _detailPanel.Padding = New Padding(20)
-            AddHandler _detailPanel.Paint, Sub(s, e)
-                                               Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                                   e.Graphics.DrawLine(pen, 0, 0, 0, _detailPanel.Height)
-                                               End Using
-                                           End Sub
-
-            Dim detailLayout As New FlowLayoutPanel With {
-                .Dock = DockStyle.Top,
-                .FlowDirection = FlowDirection.TopDown,
-                .WrapContents = False,
-                .AutoSize = True,
-                .Width = 296,
-                .BackColor = Color.Transparent
-            }
-
-            _detailPhotoBox.Size = New Size(296, 182)
-            _detailPhotoBox.SizeMode = PictureBoxSizeMode.Zoom
-            _detailPhotoBox.BackColor = AppTheme.SidebarOat
-            _detailPhotoBox.Margin = New Padding(0, 0, 0, 12)
-            AddHandler _detailPhotoBox.Paint, AddressOf OnDetailPhotoPaint
-
-            Dim metaRow As New Panel With {
-                .Width = 296,
-                .Height = 28,
-                .Margin = New Padding(0, 0, 0, 6)
-            }
-
-            _detailCategoryLabel.Location = New Point(0, 4)
-            _detailCategoryLabel.Font = AppTheme.FontCaptionBold
-            _detailCategoryLabel.ForeColor = AppTheme.TextSecondary
-            _detailCategoryLabel.AutoSize = True
-
-            _detailAvailabilityTag.Location = New Point(176, 2)
-            _detailAvailabilityTag.AutoSize = True
-
-            metaRow.Controls.Add(_detailCategoryLabel)
-            metaRow.Controls.Add(_detailAvailabilityTag)
-
-            _detailTitleLabel.Font = AppTheme.FontSectionTitle
-            _detailTitleLabel.ForeColor = AppTheme.TextPrimary
-            _detailTitleLabel.MaximumSize = New Size(296, 0)
-            _detailTitleLabel.AutoSize = True
-            _detailTitleLabel.Margin = New Padding(0, 0, 0, 4)
-
-            _detailPriceLabel.Font = New Font("Segoe UI", 13.0F, FontStyle.Bold, GraphicsUnit.Point)
-            _detailPriceLabel.ForeColor = AppTheme.PrimaryMocha
-            _detailPriceLabel.AutoSize = True
-            _detailPriceLabel.Margin = New Padding(0, 0, 0, 12)
-
-            _detailDescriptionLabel.Font = AppTheme.FontBody
-            _detailDescriptionLabel.ForeColor = AppTheme.TextSecondary
-            _detailDescriptionLabel.MaximumSize = New Size(296, 0)
-            _detailDescriptionLabel.AutoSize = True
-            _detailDescriptionLabel.Margin = New Padding(0, 0, 0, 14)
-
-            _detailCustomNoteLabel.Font = AppTheme.FontCaption
-            _detailCustomNoteLabel.MaximumSize = New Size(296, 0)
-            _detailCustomNoteLabel.AutoSize = True
-            _detailCustomNoteLabel.Padding = New Padding(10, 8, 10, 8)
-            _detailCustomNoteLabel.Margin = New Padding(0, 0, 0, 14)
-
-            _staffActionsPanel.Width = 296
-            _staffActionsPanel.Height = 46
-            _staffActionsPanel.Margin = New Padding(0, 0, 0, 8)
-
-            _editMenuBtn.Text = "Edit Menu"
-            _editMenuBtn.Location = New Point(0, 4)
-            _editMenuBtn.Size = New Size(AppTheme.MeasureButtonWidth(_editMenuBtn.Text, AppTheme.FontBodyBold, 114, 24), 34)
-            AppTheme.StylePrimaryButton(_editMenuBtn)
-            AddHandler _editMenuBtn.Click, AddressOf OnEditSelectedClick
-
-            _toggleAvailabilityBtn.Text = "Tandai Habis"
-            _toggleAvailabilityBtn.Location = New Point(_editMenuBtn.Right + 8, 4)
-            _toggleAvailabilityBtn.Size = New Size(296 - _toggleAvailabilityBtn.Left, 34)
-            AppTheme.StyleSecondaryButton(_toggleAvailabilityBtn)
-            AddHandler _toggleAvailabilityBtn.Click, AddressOf OnToggleAvailabilityClick
-
-            _staffActionsPanel.Controls.Add(_editMenuBtn)
-            _staffActionsPanel.Controls.Add(_toggleAvailabilityBtn)
-
-            _detailStatusBanner.Font = AppTheme.FontCaptionBold
-            _detailStatusBanner.MaximumSize = New Size(296, 0)
-            _detailStatusBanner.AutoSize = True
-            _detailStatusBanner.Padding = New Padding(10, 6, 10, 6)
-            _detailStatusBanner.Visible = False
-
-            detailLayout.Controls.AddRange({
-                _detailPhotoBox,
-                metaRow,
-                _detailTitleLabel,
-                _detailPriceLabel,
-                _detailDescriptionLabel,
-                _detailCustomNoteLabel,
-                _staffActionsPanel,
-                _detailStatusBanner
-            })
-
-            _detailPanel.Controls.Add(detailLayout)
-
-            _workspaceHost.Controls.Add(_catalogPane)
-            _workspaceHost.Controls.Add(_detailPanel)
         End Sub
 
         Private Sub BuildStateOverlay()
@@ -405,7 +200,7 @@ Namespace Features
             _stateProgress.Margin = New Padding(0, 0, 0, 16)
             _stateProgress.Visible = False
 
-            _stateActionBtn.Size = New Size(190, 36)
+            _stateActionBtn.Size = New Size(204, 36)
             AppTheme.StylePrimaryButton(_stateActionBtn)
             AddHandler _stateActionBtn.Click, AddressOf OnStateActionClick
 
@@ -739,6 +534,8 @@ Namespace Features
                     AppTheme.StyleSecondaryButton(_stateActionBtn)
             End Select
 
+            _stateActionBtn.Width = AppTheme.MeasureButtonWidth(_stateActionBtn.Text, AppTheme.FontBodyBold, 160, 28)
+
             Dim flow = TryCast(_stateCard.Controls(0), FlowLayoutPanel)
             If flow IsNot Nothing Then
                 _stateCard.Height = flow.PreferredSize.Height + _stateCard.Padding.Vertical + 6
@@ -887,23 +684,14 @@ Namespace Features
             End If
         End Sub
 
-        Protected Overrides Sub Dispose(disposing As Boolean)
-            If disposing Then
+        Private Sub CleanupRuntimeResources()
+            If _runtimeInitialized Then
                 RemoveHandler AppSession.SessionChanged, AddressOf OnSessionChanged
                 RemoveHandler SupabaseClientProvider.ConfigurationChanged, AddressOf OnConfigurationChanged
-                SetDetailPhoto(Nothing)
+                _runtimeInitialized = False
             End If
-            MyBase.Dispose(disposing)
+            SetDetailPhoto(Nothing)
         End Sub
-
-        Private NotInheritable Class BufferedFlowLayoutPanel
-            Inherits FlowLayoutPanel
-
-            Public Sub New()
-                DoubleBuffered = True
-                ResizeRedraw = True
-            End Sub
-        End Class
 
         Private NotInheritable Class MenuCardControl
             Inherits Control

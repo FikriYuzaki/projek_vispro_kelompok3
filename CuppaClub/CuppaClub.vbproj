@@ -15,6 +15,42 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Update="Features\ComingSoonControl.vb">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Features\ComingSoonControl.Designer.vb">
+      <DependentUpon>ComingSoonControl.vb</DependentUpon>
+    </Compile>
+    <Compile Update="Features\MenuGalleryControl.vb">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="Features\MenuGalleryControl.Designer.vb">
+      <DependentUpon>MenuGalleryControl.vb</DependentUpon>
+    </Compile>
+    <Compile Update="Forms\FrmMain.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Forms\FrmMain.Designer.vb">
+      <DependentUpon>FrmMain.vb</DependentUpon>
+    </Compile>
+    <Compile Update="Forms\LoginForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Forms\LoginForm.Designer.vb">
+      <DependentUpon>LoginForm.vb</DependentUpon>
+    </Compile>
+    <Compile Update="Forms\MenuItemEditorForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Forms\MenuItemEditorForm.Designer.vb">
+      <DependentUpon>MenuItemEditorForm.vb</DependentUpon>
+    </Compile>
+    <Compile Update="Forms\SupabaseConfigForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Forms\SupabaseConfigForm.Designer.vb">
+      <DependentUpon>SupabaseConfigForm.vb</DependentUpon>
+    </Compile>
     <Compile Update="My Project\Application.Designer.vb">
       <DesignTime>True</DesignTime>
       <AutoGen>True</AutoGen>
