@@ -1,0 +1,21 @@
+# Visual Studio & .NET build outputs
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+TestResults/
+*.log
+
+# Local secrets and Supabase credentials (never commit)
+.env
+.env.*
+appsettings.local.json
+supabase/.temp/
+
+# OS artifacts
+Thumbs.db
+Desktop.ini
+.DS_Store
