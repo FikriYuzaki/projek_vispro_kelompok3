@@ -21,7 +21,9 @@ Public Class FrmMain
     Private ReadOnly _headerConnectionBtn As New Button()
     Private ReadOnly _contentHost As New Panel()
 
+    Private ReadOnly _bottomUtilityPanel As New Panel()
     Private ReadOnly _sidebarConnBtn As New Button()
+    Private ReadOnly _accountCard As New Panel()
     Private ReadOnly _accountNameLabel As New Label()
     Private ReadOnly _accountRoleLabel As New Label()
     Private ReadOnly _accountActionBtn As New Button()
@@ -118,17 +120,15 @@ Public Class FrmMain
             _navHost.Controls.Add(navItem)
         Next
 
-        Dim bottomUtilityPanel As New Panel With {
-            .Dock = DockStyle.Bottom,
-            .Height = 174,
-            .BackColor = Color.Transparent,
-            .Padding = New Padding(14, 12, 14, 14)
-        }
-        AddHandler bottomUtilityPanel.Paint, Sub(s, e)
-                                                 Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                                     e.Graphics.DrawLine(pen, 14, 0, bottomUtilityPanel.Width - 15, 0)
-                                                 End Using
-                                             End Sub
+        _bottomUtilityPanel.Dock = DockStyle.Bottom
+        _bottomUtilityPanel.Height = 174
+        _bottomUtilityPanel.BackColor = Color.Transparent
+        _bottomUtilityPanel.Padding = New Padding(14, 12, 14, 14)
+        AddHandler _bottomUtilityPanel.Paint, Sub(s, e)
+                                                  Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
+                                                      e.Graphics.DrawLine(pen, 14, 0, _bottomUtilityPanel.Width - 15, 0)
+                                                  End Using
+                                              End Sub
 
         _sidebarConnBtn.Location = New Point(14, 12)
         _sidebarConnBtn.Size = New Size(240, 34)
@@ -140,17 +140,15 @@ Public Class FrmMain
         _sidebarConnBtn.TabIndex = 10
         AddHandler _sidebarConnBtn.Click, AddressOf OnOpenConfigClick
 
-        Dim accountCard As New Panel With {
-            .Location = New Point(14, 54),
-            .Size = New Size(240, 104),
-            .BackColor = AppTheme.SurfaceMilk,
-            .Padding = New Padding(12, 10, 12, 10)
-        }
-        AddHandler accountCard.Paint, Sub(s, e)
-                                          Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                              e.Graphics.DrawRectangle(pen, 0, 0, accountCard.Width - 1, accountCard.Height - 1)
-                                          End Using
-                                      End Sub
+        _accountCard.Location = New Point(14, 54)
+        _accountCard.Size = New Size(240, 104)
+        _accountCard.BackColor = AppTheme.SurfaceMilk
+        _accountCard.Padding = New Padding(12, 10, 12, 10)
+        AddHandler _accountCard.Paint, Sub(s, e)
+                                           Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
+                                               e.Graphics.DrawRectangle(pen, 0, 0, _accountCard.Width - 1, _accountCard.Height - 1)
+                                           End Using
+                                       End Sub
 
         _accountNameLabel.Location = New Point(12, 10)
         _accountNameLabel.Size = New Size(216, 24)
@@ -169,17 +167,17 @@ Public Class FrmMain
         _accountActionBtn.TabIndex = 11
         AddHandler _accountActionBtn.Click, AddressOf OnAccountActionClick
 
-        accountCard.Controls.Add(_accountNameLabel)
-        accountCard.Controls.Add(_accountRoleLabel)
-        accountCard.Controls.Add(_accountActionBtn)
+        _accountCard.Controls.Add(_accountNameLabel)
+        _accountCard.Controls.Add(_accountRoleLabel)
+        _accountCard.Controls.Add(_accountActionBtn)
 
-        bottomUtilityPanel.Controls.Add(_sidebarConnBtn)
-        bottomUtilityPanel.Controls.Add(accountCard)
+        _bottomUtilityPanel.Controls.Add(_sidebarConnBtn)
+        _bottomUtilityPanel.Controls.Add(_accountCard)
 
         _sidebarPanel.Controls.Add(_navHost)
         _sidebarPanel.Controls.Add(navSectionLabel)
         _sidebarPanel.Controls.Add(brandPanel)
-        _sidebarPanel.Controls.Add(bottomUtilityPanel)
+        _sidebarPanel.Controls.Add(_bottomUtilityPanel)
 
         Dim rightWorkspace As New Panel With {
             .Dock = DockStyle.Fill,
@@ -315,10 +313,25 @@ Public Class FrmMain
             _accountActionBtn.Text = "Masuk / Daftar"
             AppTheme.StylePrimaryButton(_accountActionBtn)
         End If
+
+        RefreshConnectionUi()
     End Sub
 
     Private Sub RefreshConnectionUi()
         Dim configured = SupabaseClientProvider.IsConfigured
+        Dim showConnectionControls = (Not configured) OrElse AppSession.IsStaff
+
+        _sidebarConnBtn.Visible = showConnectionControls
+        _headerConnectionBtn.Visible = showConnectionControls
+
+        If showConnectionControls Then
+            _bottomUtilityPanel.Height = 174
+            _accountCard.Location = New Point(14, 54)
+        Else
+            _bottomUtilityPanel.Height = 130
+            _accountCard.Location = New Point(14, 12)
+        End If
+
         If configured Then
             _sidebarConnBtn.Text = "Supabase: Terhubung"
             _sidebarConnBtn.BackColor = AppTheme.SageTint
