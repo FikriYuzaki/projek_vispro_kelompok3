@@ -18,16 +18,38 @@ Namespace Features
 
     Public Class BrewTrackerControl
 
-        Private ReadOnly _service As BrewTrackerService
+        Private Const FallbackPollIntervalMs As Integer = 25000
+        Private Const RealtimeReconnectIntervalMs As Integer = 15000
+        Private Const RealtimeDebounceIntervalMs As Integer = 350
 
         Private _orders As New List(Of BrewOrder)()
         Private _selectedOrderId As String = String.Empty
+        Private _customerDetailOrderId As String = String.Empty
 
         Private _isLoading As Boolean = False
+        Private _pendingBackgroundRefresh As Boolean = False
         Private _isDisposed As Boolean = False
+        Private _hasLoaded As Boolean = False
+        Private _initialLiveSetupPending As Boolean = False
+        Private _wasHiddenSinceLoad As Boolean = False
+        Private _hasPendingRefreshWhileHidden As Boolean = False
+        Private _runtimeInitialized As Boolean = False
+        Private _cleanupDone As Boolean = False
 
         Private _loadVersion As Integer = 0
         Private _detailVersion As Integer = 0
+
+        Private _realtimeSubscription As BrewOrdersRealtimeSubscription
+        Private _realtimeConnectInFlight As Boolean = False
+        Private _realtimeGeneration As Integer = 0
+        Private _realtimeState As BrewRealtimeConnectionState = BrewRealtimeConnectionState.Disconnected
+        Private _hadRealtimeDisruption As Boolean = False
+        Private _realtimeUnavailableOnServer As Boolean = False
+        Private _lastUpdatedAt As DateTime?
+
+        Private _fallbackPollTimer As Timer
+        Private _reconnectTimer As Timer
+        Private _realtimeDebounceTimer As Timer
 
         Private ReadOnly _canvas As Color = Color.FromArgb(250, 244, 236)
         Private ReadOnly _surface As Color = Color.FromArgb(255, 253, 249)
@@ -49,24 +71,42 @@ Namespace Features
 
             InitializeComponent()
 
-            If LicenseManager.UsageMode = LicenseUsageMode.Designtime Then Return
+            If LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then Return
 
-            _service = New BrewTrackerService()
-
+            _runtimeInitialized = True
             Me.BackColor = _canvas
 
+            _fallbackPollTimer = New Timer With {
+                .Interval = FallbackPollIntervalMs,
+                .Enabled = False
+            }
+            _reconnectTimer = New Timer With {
+                .Interval = RealtimeReconnectIntervalMs,
+                .Enabled = False
+            }
+            _realtimeDebounceTimer = New Timer With {
+                .Interval = RealtimeDebounceIntervalMs,
+                .Enabled = False
+            }
+
             AddHandler _refreshButton.Click, AddressOf RefreshButton_Click
+            AddHandler _headerPanel.Resize, AddressOf HeaderPanel_Resize
+            AddHandler _fallbackPollTimer.Tick, AddressOf FallbackPollTimer_Tick
+            AddHandler _reconnectTimer.Tick, AddressOf ReconnectTimer_Tick
+            AddHandler _realtimeDebounceTimer.Tick, AddressOf RealtimeDebounceTimer_Tick
             AddHandler AppSession.SessionChanged, AddressOf SessionChanged
+            AddHandler SupabaseClientProvider.ConfigurationChanged, AddressOf ConfigurationChanged
+            AddHandler Me.VisibleChanged, AddressOf Control_VisibleChanged
             AddHandler Me.Disposed, AddressOf Control_Disposed
+            AddHandler Me.Load, AddressOf Control_Load
 
             ApplyViewMode()
-
-            AddHandler Me.Load, AddressOf Control_Load
+            UpdateLastUpdatedLabel()
 
         End Sub
 
         ' =========================================================
-        ' LIFECYCLE
+        ' LIFECYCLE & LIVE UPDATES
         ' =========================================================
 
         Private Async Sub Control_Load(
@@ -74,7 +114,21 @@ Namespace Features
             e As EventArgs
         )
 
-            Await RefreshDataAsync()
+            If _isDisposed OrElse LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then Return
+
+            _hasLoaded = True
+            _initialLiveSetupPending = True
+            PositionHeaderStatusLabel()
+
+            Try
+                Await RefreshDataAsync(False)
+
+                If Not _isDisposed AndAlso Me.Visible Then
+                    Await EnsureRealtimeSubscriptionAsync()
+                End If
+            Finally
+                _initialLiveSetupPending = False
+            End Try
 
         End Sub
 
@@ -85,20 +139,121 @@ Namespace Features
 
             If _isDisposed Then Return
 
+            _realtimeGeneration += 1
+            TeardownRealtimeSubscription()
+            StopLiveUpdateTimers()
+            _realtimeState = BrewRealtimeConnectionState.Disconnected
+            _hadRealtimeDisruption = False
+            _realtimeUnavailableOnServer = False
+
             ApplyViewMode()
 
             _orders.Clear()
             _selectedOrderId = String.Empty
+            _customerDetailOrderId = String.Empty
+            _loadVersion += 1
+            _detailVersion += 1
+            UpdateLastUpdatedLabel()
 
             If Me.IsHandleCreated Then
                 BeginInvoke(
                     New Action(
-                        Async Function()
-                            Await RefreshDataAsync()
-                        End Function
+                        Async Sub()
+                            If _isDisposed Then Return
+                            If _isLoading Then
+                                _pendingBackgroundRefresh = True
+                            Else
+                                Await RefreshDataAsync(False)
+                            End If
+                            If Not _isDisposed AndAlso Me.Visible Then
+                                Await EnsureRealtimeSubscriptionAsync()
+                            End If
+                        End Sub
                     )
                 )
             End If
+
+        End Sub
+
+        Private Sub ConfigurationChanged(
+            sender As Object,
+            e As EventArgs
+        )
+
+            If _isDisposed Then Return
+
+            _realtimeGeneration += 1
+            TeardownRealtimeSubscription()
+            StopLiveUpdateTimers()
+            _realtimeState = BrewRealtimeConnectionState.Disconnected
+            _hadRealtimeDisruption = False
+            _realtimeUnavailableOnServer = False
+
+            If Me.IsHandleCreated Then
+                BeginInvoke(
+                    New Action(
+                        Async Sub()
+                            If _isDisposed Then Return
+                            Await RefreshDataAsync(False)
+                            If Not _isDisposed AndAlso Me.Visible Then
+                                Await EnsureRealtimeSubscriptionAsync()
+                            End If
+                        End Sub
+                    )
+                )
+            End If
+
+        End Sub
+
+        Private Async Sub Control_VisibleChanged(
+            sender As Object,
+            e As EventArgs
+        )
+
+            If _isDisposed Then Return
+
+            If Not Me.Visible Then
+                If _hasLoaded Then
+                    _wasHiddenSinceLoad = True
+                End If
+                StopLiveUpdateTimers()
+                UpdateLastUpdatedLabel()
+                Return
+            End If
+
+            PositionHeaderStatusLabel()
+
+            If _hasLoaded AndAlso Not _initialLiveSetupPending Then
+                Dim shouldRefreshOnResume As Boolean = _wasHiddenSinceLoad OrElse _hasPendingRefreshWhileHidden
+                _wasHiddenSinceLoad = False
+                _hasPendingRefreshWhileHidden = False
+
+                If _realtimeState <> BrewRealtimeConnectionState.Connected AndAlso
+                   SupabaseClientProvider.IsConfigured Then
+                    StartFallbackPollingIfNeeded()
+                    If Not _realtimeUnavailableOnServer Then
+                        Await EnsureRealtimeSubscriptionAsync()
+                    End If
+                Else
+                    UpdateLastUpdatedLabel()
+                End If
+
+                If shouldRefreshOnResume AndAlso Not _isDisposed AndAlso Me.Visible Then
+                    If _realtimeDebounceTimer IsNot Nothing Then
+                        _realtimeDebounceTimer.Stop()
+                    End If
+                    Await RefreshDataAsync(True)
+                End If
+            End If
+
+        End Sub
+
+        Private Sub HeaderPanel_Resize(
+            sender As Object,
+            e As EventArgs
+        )
+
+            PositionHeaderStatusLabel()
 
         End Sub
 
@@ -107,13 +262,401 @@ Namespace Features
             e As EventArgs
         )
 
+            CleanupRuntimeResources()
+
+        End Sub
+
+        Private Sub CleanupRuntimeResources()
+
+            If _cleanupDone Then Return
+            _cleanupDone = True
             _isDisposed = True
+            _pendingBackgroundRefresh = False
+            _wasHiddenSinceLoad = False
+            _hasPendingRefreshWhileHidden = False
 
-            RemoveHandler AppSession.SessionChanged, AddressOf SessionChanged
-            RemoveHandler _refreshButton.Click, AddressOf RefreshButton_Click
-
+            _realtimeGeneration += 1
             _loadVersion += 1
             _detailVersion += 1
+
+            If Not _runtimeInitialized Then Return
+
+            RemoveHandler AppSession.SessionChanged, AddressOf SessionChanged
+            RemoveHandler SupabaseClientProvider.ConfigurationChanged, AddressOf ConfigurationChanged
+            RemoveHandler Me.VisibleChanged, AddressOf Control_VisibleChanged
+            RemoveHandler Me.Disposed, AddressOf Control_Disposed
+            RemoveHandler Me.Load, AddressOf Control_Load
+
+            If _refreshButton IsNot Nothing Then
+                RemoveHandler _refreshButton.Click, AddressOf RefreshButton_Click
+            End If
+
+            If _headerPanel IsNot Nothing Then
+                RemoveHandler _headerPanel.Resize, AddressOf HeaderPanel_Resize
+            End If
+
+            DisposeTimer(
+                _fallbackPollTimer,
+                AddressOf FallbackPollTimer_Tick
+            )
+            DisposeTimer(
+                _reconnectTimer,
+                AddressOf ReconnectTimer_Tick
+            )
+            DisposeTimer(
+                _realtimeDebounceTimer,
+                AddressOf RealtimeDebounceTimer_Tick
+            )
+
+            TeardownRealtimeSubscription()
+
+        End Sub
+
+        Private Sub DisposeTimer(
+            ByRef targetTimer As Timer,
+            handler As EventHandler
+        )
+
+            If targetTimer Is Nothing Then Return
+
+            Try
+                targetTimer.Stop()
+                RemoveHandler targetTimer.Tick, handler
+                targetTimer.Dispose()
+            Catch
+            Finally
+                targetTimer = Nothing
+            End Try
+
+        End Sub
+
+        Private Sub StopLiveUpdateTimers()
+
+            If _fallbackPollTimer IsNot Nothing Then
+                _fallbackPollTimer.Stop()
+            End If
+            If _reconnectTimer IsNot Nothing Then
+                _reconnectTimer.Stop()
+            End If
+            If _realtimeDebounceTimer IsNot Nothing Then
+                _realtimeDebounceTimer.Stop()
+            End If
+
+        End Sub
+
+        Private Sub TeardownRealtimeSubscription()
+
+            Dim existing As BrewOrdersRealtimeSubscription = _realtimeSubscription
+            _realtimeSubscription = Nothing
+
+            If existing IsNot Nothing Then
+                Try
+                    existing.Dispose()
+                Catch
+                End Try
+            End If
+
+        End Sub
+
+        Private Sub StartFallbackPollingIfNeeded()
+
+            If _isDisposed OrElse Not Me.Visible Then Return
+            If Not SupabaseClientProvider.IsConfigured Then Return
+            If _realtimeState = BrewRealtimeConnectionState.Connected Then Return
+
+            If _fallbackPollTimer IsNot Nothing AndAlso Not _fallbackPollTimer.Enabled Then
+                _fallbackPollTimer.Start()
+            End If
+
+            If _reconnectTimer IsNot Nothing Then
+                If _realtimeUnavailableOnServer Then
+                    _reconnectTimer.Stop()
+                ElseIf Not _reconnectTimer.Enabled AndAlso Not _realtimeConnectInFlight Then
+                    _reconnectTimer.Start()
+                End If
+            End If
+
+            UpdateLastUpdatedLabel()
+
+        End Sub
+
+        Private Async Function EnsureRealtimeSubscriptionAsync() As Task
+
+            If _isDisposed OrElse Not Me.Visible Then Return
+            If _realtimeConnectInFlight Then Return
+
+            If _realtimeSubscription IsNot Nothing AndAlso
+               Not _realtimeSubscription.IsDisposed AndAlso
+               _realtimeSubscription.IsJoined Then
+                _realtimeState = BrewRealtimeConnectionState.Connected
+                StopFallbackAndReconnectTimers()
+                UpdateLastUpdatedLabel()
+                Return
+            End If
+
+            If Not SupabaseClientProvider.IsConfigured Then
+                _realtimeState = BrewRealtimeConnectionState.Disconnected
+                StopLiveUpdateTimers()
+                UpdateLastUpdatedLabel()
+                Return
+            End If
+
+            If _realtimeUnavailableOnServer Then
+                StartFallbackPollingIfNeeded()
+                Return
+            End If
+
+            TeardownRealtimeSubscription()
+
+            Dim generation As Integer = _realtimeGeneration
+            Dim subscription As BrewOrdersRealtimeSubscription = Nothing
+            Dim subscribeError As Exception = Nothing
+            _realtimeConnectInFlight = True
+            _realtimeState = BrewRealtimeConnectionState.Connecting
+            UpdateLastUpdatedLabel()
+
+            Try
+                subscription =
+                    Await BrewTrackerService.SubscribeOrdersAsync(
+                        AddressOf HandleRealtimeOrderChanged,
+                        AddressOf HandleRealtimeStateChanged
+                    ).ConfigureAwait(False)
+            Catch ex As Exception
+                subscribeError = ex
+            End Try
+
+            Await EnsureUiThreadAsync()
+
+            _realtimeConnectInFlight = False
+
+            If _isDisposed OrElse Me.InvokeRequired OrElse generation <> _realtimeGeneration Then
+                If subscription IsNot Nothing Then
+                    Try
+                        subscription.Dispose()
+                    Catch
+                    End Try
+                End If
+                Return
+            End If
+
+            If subscribeError IsNot Nothing Then
+                Dim errMsg As String = If(subscribeError.Message, String.Empty)
+                If errMsg.IndexOf("Unable to subscribe to changes", StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+                   errMsg.IndexOf("Realtime is enabled", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    _realtimeUnavailableOnServer = True
+                End If
+
+                _realtimeState = BrewRealtimeConnectionState.[Error]
+                _hadRealtimeDisruption = True
+                UpdateLastUpdatedLabel()
+                StartFallbackPollingIfNeeded()
+                Return
+            End If
+
+            _realtimeSubscription = subscription
+            _realtimeState = BrewRealtimeConnectionState.Connected
+            StopFallbackAndReconnectTimers()
+            UpdateLastUpdatedLabel()
+
+            If _hadRealtimeDisruption Then
+                _hadRealtimeDisruption = False
+                ScheduleRealtimeRefresh()
+            End If
+
+        End Function
+
+        Private Sub StopFallbackAndReconnectTimers()
+
+            If _fallbackPollTimer IsNot Nothing Then
+                _fallbackPollTimer.Stop()
+            End If
+            If _reconnectTimer IsNot Nothing Then
+                _reconnectTimer.Stop()
+            End If
+
+        End Sub
+
+        Private Sub HandleRealtimeOrderChanged(
+            orderId As String,
+            newStatus As String
+        )
+
+            MarshalToUi(
+                Sub()
+                    If _isDisposed Then Return
+                    ScheduleRealtimeRefresh()
+                End Sub
+            )
+
+        End Sub
+
+        Private Sub HandleRealtimeStateChanged(
+            state As BrewRealtimeConnectionState,
+            detail As String
+        )
+
+            MarshalToUi(
+                Sub()
+                    If _isDisposed Then Return
+
+                    _realtimeState = state
+
+                    Select Case state
+                        Case BrewRealtimeConnectionState.Connected
+                            StopFallbackAndReconnectTimers()
+                            If _hadRealtimeDisruption Then
+                                _hadRealtimeDisruption = False
+                                ScheduleRealtimeRefresh()
+                            End If
+                        Case BrewRealtimeConnectionState.Reconnecting,
+                             BrewRealtimeConnectionState.Disconnected,
+                             BrewRealtimeConnectionState.[Error]
+                            _hadRealtimeDisruption = True
+                            StartFallbackPollingIfNeeded()
+                    End Select
+
+                    UpdateLastUpdatedLabel()
+                End Sub
+            )
+
+        End Sub
+
+        Private Sub MarshalToUi(action As Action)
+
+            If _isDisposed OrElse Not Me.IsHandleCreated Then Return
+
+            Try
+                Me.BeginInvoke(action)
+            Catch ex As ObjectDisposedException
+            Catch ex As InvalidOperationException
+            End Try
+
+        End Sub
+
+        Private Function EnsureUiThreadAsync() As Task
+
+            If _isDisposed OrElse Not Me.IsHandleCreated OrElse Not Me.InvokeRequired Then
+                Return Task.CompletedTask
+            End If
+
+            ' Omit RunContinuationsAsynchronously so TrySetResult resumes inline on the UI thread.
+            Dim tcs As New TaskCompletionSource(Of Boolean)()
+            Try
+                Me.BeginInvoke(
+                    New Action(
+                        Sub()
+                            tcs.TrySetResult(True)
+                        End Sub
+                    )
+                )
+            Catch ex As ObjectDisposedException
+                tcs.TrySetResult(False)
+            Catch ex As InvalidOperationException
+                tcs.TrySetResult(False)
+            End Try
+
+            Return tcs.Task
+
+        End Function
+
+        Private Sub ScheduleRealtimeRefresh()
+
+            If _isDisposed OrElse _realtimeDebounceTimer Is Nothing Then Return
+
+            If Not Me.Visible Then
+                _hasPendingRefreshWhileHidden = True
+                If _realtimeDebounceTimer.Enabled Then
+                    _realtimeDebounceTimer.Stop()
+                End If
+                Return
+            End If
+
+            _realtimeDebounceTimer.Stop()
+            _realtimeDebounceTimer.Start()
+
+        End Sub
+
+        Private Async Sub RealtimeDebounceTimer_Tick(
+            sender As Object,
+            e As EventArgs
+        )
+
+            If _realtimeDebounceTimer IsNot Nothing Then
+                _realtimeDebounceTimer.Stop()
+            End If
+
+            If _isDisposed OrElse Not Me.Visible Then Return
+
+            Await RefreshDataAsync(True)
+
+        End Sub
+
+        Private Async Sub FallbackPollTimer_Tick(
+            sender As Object,
+            e As EventArgs
+        )
+
+            If _isDisposed OrElse Not Me.Visible Then Return
+            If _realtimeState = BrewRealtimeConnectionState.Connected Then
+                StopFallbackAndReconnectTimers()
+                UpdateLastUpdatedLabel()
+                Return
+            End If
+
+            Await RefreshDataAsync(True)
+
+        End Sub
+
+        Private Async Sub ReconnectTimer_Tick(
+            sender As Object,
+            e As EventArgs
+        )
+
+            If _reconnectTimer IsNot Nothing Then
+                _reconnectTimer.Stop()
+            End If
+
+            If _isDisposed OrElse Not Me.Visible Then Return
+            If _realtimeState = BrewRealtimeConnectionState.Connected Then Return
+
+            Await EnsureRealtimeSubscriptionAsync()
+
+        End Sub
+
+        Private Sub UpdateLastUpdatedLabel()
+
+            If _isDisposed OrElse _lastUpdatedLabel Is Nothing Then Return
+
+            Dim modeText As String
+            If _realtimeState = BrewRealtimeConnectionState.Connected Then
+                modeText = "Live"
+            ElseIf _realtimeState = BrewRealtimeConnectionState.Connecting OrElse
+                   _realtimeState = BrewRealtimeConnectionState.Reconnecting Then
+                modeText = "Menghubungkan"
+            ElseIf _fallbackPollTimer IsNot Nothing AndAlso _fallbackPollTimer.Enabled Then
+                modeText = "Auto 25d"
+            Else
+                modeText = "Manual"
+            End If
+
+            Dim timeText As String = If(
+                _lastUpdatedAt.HasValue,
+                _lastUpdatedAt.Value.ToString("HH:mm", CultureInfo.InvariantCulture),
+                "Belum diperbarui"
+            )
+
+            _lastUpdatedLabel.Text = modeText & " | " & timeText
+            PositionHeaderStatusLabel()
+
+        End Sub
+
+        Private Sub PositionHeaderStatusLabel()
+
+            If _isDisposed OrElse _headerPanel Is Nothing OrElse _lastUpdatedLabel Is Nothing OrElse _subtitleLabel Is Nothing Then Return
+
+            Dim targetLeft As Integer = _headerPanel.ClientSize.Width - 20 - _lastUpdatedLabel.Width
+            Dim minLeft As Integer = _subtitleLabel.Right + 16
+            _lastUpdatedLabel.Left = Math.Max(minLeft, targetLeft)
 
         End Sub
 
@@ -145,31 +688,86 @@ Namespace Features
         ' DATA LOADING
         ' =========================================================
 
-        Private Async Function RefreshDataAsync() As Task
+        Private Async Function RefreshDataAsync(Optional isBackground As Boolean = False) As Task
 
-            If _isDisposed OrElse _isLoading Then Return
+            If _isDisposed Then Return
+
+            If _isLoading Then
+                If isBackground Then
+                    _pendingBackgroundRefresh = True
+                End If
+                Return
+            End If
 
             _isLoading = True
+            _pendingBackgroundRefresh = False
             _loadVersion += 1
 
             Dim currentLoadVersion As Integer = _loadVersion
 
-            _refreshButton.Enabled = False
-            _refreshButton.Text = "Refreshing..."
+            If Not isBackground OrElse _orders.Count = 0 Then
+                _refreshButton.Enabled = False
+                _refreshButton.Text = "Refreshing..."
 
-            ShowState(
-                "Mengambil data pesanan...",
-                True,
-                _warningTint,
-                _warningText
-            )
+                ShowState(
+                    "Mengambil data pesanan...",
+                    True,
+                    _warningTint,
+                    _warningText
+                )
+            End If
 
             Try
 
-                Dim result As List(Of BrewOrder) =
-                    Await _service.GetOrdersAsync()
+                Dim result As List(Of BrewOrder) = Nothing
+                Dim fetchError As Exception = Nothing
 
-                If _isDisposed OrElse currentLoadVersion <> _loadVersion Then
+                Try
+                    result = Await BrewTrackerService.GetOrdersAsync().ConfigureAwait(False)
+                Catch ex As Exception
+                    fetchError = ex
+                End Try
+
+                Await EnsureUiThreadAsync()
+
+                If _isDisposed OrElse Me.InvokeRequired OrElse currentLoadVersion <> _loadVersion Then
+                    Return
+                End If
+
+                If fetchError IsNot Nothing Then
+                    ShowState(
+                        "Data pesanan gagal dimuat. Coba refresh kembali.",
+                        False,
+                        _errorTint,
+                        _errorText
+                    )
+
+                    If Not isBackground OrElse _orders.Count = 0 Then
+                        If AppSession.IsStaff Then
+
+                            ShowPanelMessage(
+                                _queueFlowPanel,
+                                "Gagal memuat antrean",
+                                "Silakan tekan tombol Refresh."
+                            )
+
+                            ShowPanelMessage(
+                                _detailContentPanel,
+                                "Data belum tersedia",
+                                "Silakan refresh untuk mencoba kembali."
+                            )
+
+                        Else
+
+                            ShowPanelMessage(
+                                _customerContentPanel,
+                                "Data belum tersedia",
+                                "Silakan refresh untuk mencoba kembali."
+                            )
+
+                        End If
+                    End If
+
                     Return
                 End If
 
@@ -190,12 +788,8 @@ Namespace Features
                     ).
                     ToList()
 
-                _lastUpdatedLabel.Text =
-                    "Last updated " &
-                    DateTime.Now.ToString(
-                        "HH:mm",
-                        CultureInfo.InvariantCulture
-                    )
+                _lastUpdatedAt = DateTime.Now
+                UpdateLastUpdatedLabel()
 
                 HideState()
 
@@ -245,7 +839,26 @@ Namespace Features
                 Else
 
                     _selectedOrderId = String.Empty
-                    RenderCustomerOrders()
+
+                    Dim activeCustomerOrder As BrewOrder = Nothing
+                    If Not String.IsNullOrWhiteSpace(_customerDetailOrderId) Then
+                        activeCustomerOrder = _orders.FirstOrDefault(
+                            Function(order)
+                                Return order.Id = _customerDetailOrderId
+                            End Function
+                        )
+                    End If
+
+                    If activeCustomerOrder IsNot Nothing Then
+                        Await RenderOrderDetailAsync(
+                            activeCustomerOrder,
+                            _customerContentPanel,
+                            True
+                        )
+                    Else
+                        _customerDetailOrderId = String.Empty
+                        RenderCustomerOrders()
+                    End If
 
                 End If
 
@@ -264,52 +877,36 @@ Namespace Features
 
                 End If
 
-            Catch ex As Exception
-
-                If _isDisposed OrElse currentLoadVersion <> _loadVersion Then
-                    Return
-                End If
-
-                ShowState(
-                    "Data pesanan gagal dimuat. Coba refresh kembali.",
-                    False,
-                    _errorTint,
-                    _errorText
-                )
-
-                If AppSession.IsStaff Then
-
-                    ShowPanelMessage(
-                        _queueFlowPanel,
-                        "Gagal memuat antrean",
-                        "Silakan tekan tombol Refresh."
-                    )
-
-                    ShowPanelMessage(
-                        _detailContentPanel,
-                        "Data belum tersedia",
-                        "Silakan refresh untuk mencoba kembali."
-                    )
-
-                Else
-
-                    ShowPanelMessage(
-                        _customerContentPanel,
-                        "Data belum tersedia",
-                        "Silakan refresh untuk mencoba kembali."
-                    )
-
-                End If
-
             Finally
 
-                If Not _isDisposed AndAlso currentLoadVersion = _loadVersion Then
+                If Not _isDisposed Then
+                    If Not Me.InvokeRequired Then
+                        _isLoading = False
+                        _refreshButton.Enabled = True
+                        _refreshButton.Text = "Refresh"
 
-                    _isLoading = False
-
-                    _refreshButton.Enabled = True
-                    _refreshButton.Text = "Refresh"
-
+                        If _pendingBackgroundRefresh Then
+                            _pendingBackgroundRefresh = False
+                            MarshalToUi(
+                                Async Sub()
+                                    Await RefreshDataAsync(True)
+                                End Sub
+                            )
+                        End If
+                    Else
+                        MarshalToUi(
+                            Async Sub()
+                                If _isDisposed Then Return
+                                _isLoading = False
+                                _refreshButton.Enabled = True
+                                _refreshButton.Text = "Refresh"
+                                If _pendingBackgroundRefresh Then
+                                    _pendingBackgroundRefresh = False
+                                    Await RefreshDataAsync(True)
+                                End If
+                            End Sub
+                        )
+                    End If
                 End If
 
             End Try
@@ -321,7 +918,8 @@ Namespace Features
             e As EventArgs
         )
 
-            Await RefreshDataAsync()
+            ' Manual Refresh never creates a duplicate Realtime subscription.
+            Await RefreshDataAsync(False)
 
         End Sub
 
@@ -369,11 +967,14 @@ Namespace Features
 
                 card.Margin = New Padding(0, 0, 0, 10)
 
+                Dim capturedOrder As BrewOrder = order
+
                 AddHandler card.Click,
                     Async Sub(sender As Object, e As EventArgs)
 
+                        _customerDetailOrderId = capturedOrder.Id
                         Await RenderOrderDetailAsync(
-                            order,
+                            capturedOrder,
                             _customerContentPanel,
                             True
                         )
@@ -385,8 +986,9 @@ Namespace Features
                     AddHandler child.Click,
                         Async Sub(sender As Object, e As EventArgs)
 
+                            _customerDetailOrderId = capturedOrder.Id
                             Await RenderOrderDetailAsync(
-                                order,
+                                capturedOrder,
                                 _customerContentPanel,
                                 True
                             )
@@ -598,6 +1200,7 @@ Namespace Features
                 AddHandler backButton.Click,
                     Sub(sender As Object, e As EventArgs)
                         _detailVersion += 1
+                        _customerDetailOrderId = String.Empty
                         RenderCustomerOrders()
                     End Sub
 
@@ -617,45 +1220,28 @@ Namespace Features
 
             detailLayout.Controls.Add(loadingLabel)
 
+            Dim items As List(Of BrewOrderItem) = Nothing
+            Dim history As List(Of BrewOrderStatusHistory) = Nothing
+            Dim detailError As Exception = Nothing
+
             Try
-
-                Dim items As List(Of BrewOrderItem) =
-                    Await _service.GetOrderItemsAsync(order.Id)
-
-                If _isDisposed OrElse currentDetailVersion <> _detailVersion Then
-                    Return
+                items = Await BrewTrackerService.GetOrderItemsAsync(order.Id).ConfigureAwait(False)
+                If Not _isDisposed AndAlso currentDetailVersion = _detailVersion Then
+                    history = Await BrewTrackerService.GetOrderHistoryAsync(order.Id).ConfigureAwait(False)
                 End If
-
-                Dim history As List(Of BrewOrderStatusHistory) =
-                    Await _service.GetOrderHistoryAsync(order.Id)
-
-                If _isDisposed OrElse currentDetailVersion <> _detailVersion Then
-                    Return
-                End If
-
-                detailLayout.Controls.Remove(loadingLabel)
-
-                AddItemsSection(detailLayout, items)
-                AddPaymentSection(detailLayout, order)
-                AddHistorySection(detailLayout, history)
-
-                If AppSession.IsStaff Then
-
-                    AddStaffActionSection(
-                        detailLayout,
-                        order
-                    )
-
-                End If
-
             Catch ex As Exception
+                detailError = ex
+            End Try
 
-                If _isDisposed OrElse currentDetailVersion <> _detailVersion Then
-                    Return
-                End If
+            Await EnsureUiThreadAsync()
 
-                detailLayout.Controls.Remove(loadingLabel)
+            If _isDisposed OrElse Me.InvokeRequired OrElse currentDetailVersion <> _detailVersion Then
+                Return
+            End If
 
+            detailLayout.Controls.Remove(loadingLabel)
+
+            If detailError IsNot Nothing Then
                 AddSectionTitle(
                     detailLayout,
                     "Detail pesanan"
@@ -666,8 +1252,21 @@ Namespace Features
                     "Detail gagal dimuat",
                     "Item atau riwayat pesanan gagal diambil. Coba refresh."
                 )
+                Return
+            End If
 
-            End Try
+            AddItemsSection(detailLayout, items)
+            AddPaymentSection(detailLayout, order)
+            AddHistorySection(detailLayout, history)
+
+            If AppSession.IsStaff Then
+
+                AddStaffActionSection(
+                    detailLayout,
+                    order
+                )
+
+            End If
 
         End Function
 
@@ -1205,7 +1804,7 @@ Namespace Features
 
             End If
 
-            If Not _service.IsValidStatusTransition(
+            If Not BrewTrackerService.IsValidStatusTransition(
                 order.Status,
                 nextStatus
             ) Then
@@ -1224,30 +1823,21 @@ Namespace Features
             actionButton.Enabled = False
             actionButton.Text = "Updating..."
 
+            Dim updateError As Exception = Nothing
             Try
-
-                Await _service.UpdateOrderStatusAsync(
+                Await BrewTrackerService.UpdateOrderStatusAsync(
                     order.Id,
                     nextStatus
-                )
-
-                If _isDisposed Then Return
-
-                MessageBox.Show(
-                    "Status pesanan berhasil diperbarui.",
-                    "Berhasil",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information
-                )
-
-                _selectedOrderId = order.Id
-
-                Await RefreshDataAsync()
-
+                ).ConfigureAwait(False)
             Catch ex As Exception
+                updateError = ex
+            End Try
 
-                If _isDisposed Then Return
+            Await EnsureUiThreadAsync()
 
+            If _isDisposed OrElse Me.InvokeRequired Then Return
+
+            If updateError IsNot Nothing Then
                 MessageBox.Show(
                     "Status gagal diperbarui. Pastikan koneksi aktif dan status masih valid.",
                     "Gagal update",
@@ -1257,8 +1847,19 @@ Namespace Features
 
                 actionButton.Enabled = True
                 actionButton.Text = "Update ke " & DisplayStatus(nextStatus)
+                Return
+            End If
 
-            End Try
+            MessageBox.Show(
+                "Status pesanan berhasil diperbarui.",
+                "Berhasil",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            )
+
+            _selectedOrderId = order.Id
+
+            Await RefreshDataAsync(False)
 
         End Function
 
