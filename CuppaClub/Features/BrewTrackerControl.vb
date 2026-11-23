@@ -2,6 +2,7 @@ Option Strict On
 Option Explicit On
 
 Imports System
+Imports System.ComponentModel
 Imports System.Linq
 Imports System.Collections.Generic
 Imports System.Drawing
@@ -17,7 +18,7 @@ Namespace Features
 
     Public Class BrewTrackerControl
 
-        Private ReadOnly _service As New BrewTrackerService()
+        Private ReadOnly _service As BrewTrackerService
 
         Private _orders As New List(Of BrewOrder)()
         Private _selectedOrderId As String = String.Empty
@@ -47,6 +48,10 @@ Namespace Features
         Public Sub New()
 
             InitializeComponent()
+
+            If LicenseManager.UsageMode = LicenseUsageMode.Designtime Then Return
+
+            _service = New BrewTrackerService()
 
             Me.BackColor = _canvas
 
