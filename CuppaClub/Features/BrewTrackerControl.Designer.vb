@@ -10,8 +10,11 @@ Namespace Features
 
         Protected Overrides Sub Dispose(ByVal disposing As Boolean)
             Try
-                If disposing AndAlso components IsNot Nothing Then
-                    components.Dispose()
+                If disposing Then
+                    CleanupRuntimeResources()
+                    If components IsNot Nothing Then
+                        components.Dispose()
+                    End If
                 End If
             Finally
                 MyBase.Dispose(disposing)
@@ -120,7 +123,7 @@ Namespace Features
             Me._subtitleLabel.Font = New System.Drawing.Font(
                 "Segoe UI", 9.5!)
             Me._subtitleLabel.ForeColor = System.Drawing.Color.FromArgb(110, 86, 71)
-            Me._subtitleLabel.Location = New Point(22, 47)
+            Me._subtitleLabel.Location = New Point(22, 52)
             Me._subtitleLabel.Text = "Pantau pesanan dan progress penyajian"
 
             '
