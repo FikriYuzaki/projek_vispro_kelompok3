@@ -42,7 +42,8 @@ Namespace Core
                 .Id = "drink-creator",
                 .DisplayName = "My Drink Creator",
                 .Owner = "Habil",
-                .Status = FeatureStatus.ComingSoon,
+                .Status = FeatureStatus.Available,
+                .CreateView = Function() New DrinkCreatorControl(),
                 .Summary = "Kustomisasi minuman berdasarkan opsi menu terstruktur (ukuran, gula, es, susu, topping, extra espresso) dengan perhitungan harga otomatis.",
                 .PlannedItems = {
                     "Pemilihan opsi sesuai definisi item menu",
