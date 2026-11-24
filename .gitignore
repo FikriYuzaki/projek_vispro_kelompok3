@@ -13,6 +13,7 @@ TestResults/
 .env
 .env.*
 appsettings.local.json
+CuppaClub/appsettings.json
 supabase/.temp/
 
 # OS artifacts
