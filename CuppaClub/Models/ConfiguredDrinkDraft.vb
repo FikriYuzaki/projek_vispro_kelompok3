@@ -38,6 +38,9 @@ Namespace Models
             .WriteIndented = True
         }
 
+        <JsonPropertyName("owner_user_id")>
+        Public Property OwnerUserId As String = String.Empty
+
         <JsonPropertyName("menu_item_id")>
         Public Property MenuItemId As String = String.Empty
 
@@ -131,6 +134,7 @@ Namespace Models
             End If
 
             Return New ConfiguredDrinkDraft With {
+                .OwnerUserId = OwnerUserId,
                 .MenuItemId = MenuItemId,
                 .ItemNameSnapshot = ItemNameSnapshot,
                 .CategorySnapshot = CategorySnapshot,
@@ -157,30 +161,72 @@ Namespace Models
         End Sub
     End Class
 
-    ' In-memory handoff bridge so Friends Order Room or the shell can read prepared drafts without writing orders directly.
+    ' Per-account in-memory handoff bridge partitioned by authenticated Supabase User ID.
     Public NotInheritable Class DrinkDraftHandoff
         Private Sub New()
         End Sub
 
         Private Shared ReadOnly SyncRoot As New Object()
-        Private Shared ReadOnly PendingList As New List(Of ConfiguredDrinkDraft)()
-        Private Shared _latestDraft As ConfiguredDrinkDraft
+        Private Shared ReadOnly PendingByUser As New Dictionary(Of String, List(Of ConfiguredDrinkDraft))(StringComparer.OrdinalIgnoreCase)
+        Private Shared ReadOnly LatestByUser As New Dictionary(Of String, ConfiguredDrinkDraft)(StringComparer.OrdinalIgnoreCase)
 
         Public Shared Event DraftSubmitted As EventHandler(Of DrinkDraftSubmittedEventArgs)
         Public Shared Event PendingDraftsChanged As EventHandler
 
+        Shared Sub New()
+            AddHandler AppSession.SessionChanged, AddressOf OnSessionChanged
+        End Sub
+
+        Private Shared Sub OnSessionChanged(sender As Object, e As EventArgs)
+            RaiseEvent PendingDraftsChanged(Nothing, EventArgs.Empty)
+        End Sub
+
+        Public Shared ReadOnly Property CurrentOwnerUserId As String
+            Get
+                Dim user = AppSession.CurrentUser
+                If user Is Nothing OrElse String.IsNullOrWhiteSpace(user.Id) Then
+                    Return String.Empty
+                End If
+                Return user.Id.Trim()
+            End Get
+        End Property
+
+        Public Shared ReadOnly Property HasAuthenticatedOwner As Boolean
+            Get
+                Return Not String.IsNullOrEmpty(CurrentOwnerUserId)
+            End Get
+        End Property
+
         Public Shared ReadOnly Property LatestDraft As ConfiguredDrinkDraft
             Get
+                Dim ownerId = CurrentOwnerUserId
+                If String.IsNullOrEmpty(ownerId) Then
+                    Return Nothing
+                End If
+
                 SyncLock SyncRoot
-                    Return If(_latestDraft IsNot Nothing, _latestDraft.Clone(), Nothing)
+                    Dim latest As ConfiguredDrinkDraft = Nothing
+                    If LatestByUser.TryGetValue(ownerId, latest) AndAlso latest IsNot Nothing Then
+                        Return latest.Clone()
+                    End If
+                    Return Nothing
                 End SyncLock
             End Get
         End Property
 
         Public Shared ReadOnly Property PendingCount As Integer
             Get
+                Dim ownerId = CurrentOwnerUserId
+                If String.IsNullOrEmpty(ownerId) Then
+                    Return 0
+                End If
+
                 SyncLock SyncRoot
-                    Return PendingList.Count
+                    Dim list As List(Of ConfiguredDrinkDraft) = Nothing
+                    If PendingByUser.TryGetValue(ownerId, list) AndAlso list IsNot Nothing Then
+                        Return list.Count
+                    End If
+                    Return 0
                 End SyncLock
             End Get
         End Property
@@ -190,10 +236,28 @@ Namespace Models
                 Throw New ArgumentNullException(NameOf(draft))
             End If
 
+            Dim ownerId = CurrentOwnerUserId
+            If String.IsNullOrEmpty(ownerId) Then
+                Throw New InvalidOperationException("Masuk ke akun terlebih dahulu sebelum menyimpan draft pesanan.")
+            End If
+
+            Dim requestedOwner = If(draft.OwnerUserId, String.Empty).Trim()
+            If Not String.IsNullOrEmpty(requestedOwner) AndAlso
+               Not String.Equals(requestedOwner, ownerId, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException("Draft tidak sesuai dengan akun yang sedang aktif.")
+            End If
+
             Dim snapshot = draft.Clone()
+            snapshot.OwnerUserId = ownerId
+
             SyncLock SyncRoot
-                _latestDraft = snapshot
-                PendingList.Add(snapshot)
+                Dim list As List(Of ConfiguredDrinkDraft) = Nothing
+                If Not PendingByUser.TryGetValue(ownerId, list) Then
+                    list = New List(Of ConfiguredDrinkDraft)()
+                    PendingByUser(ownerId) = list
+                End If
+                list.Add(snapshot)
+                LatestByUser(ownerId) = snapshot
             End SyncLock
 
             RaiseEvent DraftSubmitted(Nothing, New DrinkDraftSubmittedEventArgs(snapshot))
@@ -201,19 +265,40 @@ Namespace Models
         End Sub
 
         Public Shared Function GetPendingDrafts() As List(Of ConfiguredDrinkDraft)
+            Dim ownerId = CurrentOwnerUserId
+            If String.IsNullOrEmpty(ownerId) Then
+                Return New List(Of ConfiguredDrinkDraft)()
+            End If
+
             SyncLock SyncRoot
-                Return PendingList.Select(Function(d) d.Clone()).ToList()
+                Dim list As List(Of ConfiguredDrinkDraft) = Nothing
+                If Not PendingByUser.TryGetValue(ownerId, list) OrElse list Is Nothing Then
+                    Return New List(Of ConfiguredDrinkDraft)()
+                End If
+                Return list.Select(Function(d) d.Clone()).ToList()
             End SyncLock
         End Function
 
         Public Shared Function ConsumePendingDrafts() As List(Of ConfiguredDrinkDraft)
+            Dim ownerId = CurrentOwnerUserId
+            If String.IsNullOrEmpty(ownerId) Then
+                Return New List(Of ConfiguredDrinkDraft)()
+            End If
+
             Dim items As List(Of ConfiguredDrinkDraft)
             Dim hadItems As Boolean
             SyncLock SyncRoot
-                hadItems = PendingList.Count > 0
-                items = PendingList.Select(Function(d) d.Clone()).ToList()
-                PendingList.Clear()
-                _latestDraft = Nothing
+                Dim list As List(Of ConfiguredDrinkDraft) = Nothing
+                If PendingByUser.TryGetValue(ownerId, list) AndAlso list IsNot Nothing AndAlso list.Count > 0 Then
+                    hadItems = True
+                    items = list.Select(Function(d) d.Clone()).ToList()
+                    PendingByUser.Remove(ownerId)
+                Else
+                    items = New List(Of ConfiguredDrinkDraft)()
+                End If
+                If LatestByUser.Remove(ownerId) Then
+                    hadItems = True
+                End If
             End SyncLock
 
             If hadItems Then
@@ -223,13 +308,27 @@ Namespace Models
         End Function
 
         Public Shared Function RemovePendingAt(index As Integer) As Boolean
+            Dim ownerId = CurrentOwnerUserId
+            If String.IsNullOrEmpty(ownerId) Then
+                Return False
+            End If
+
             Dim removed As Boolean
             SyncLock SyncRoot
-                If index < 0 OrElse index >= PendingList.Count Then
+                Dim list As List(Of ConfiguredDrinkDraft) = Nothing
+                If Not PendingByUser.TryGetValue(ownerId, list) OrElse list Is Nothing Then
                     Return False
                 End If
-                PendingList.RemoveAt(index)
-                _latestDraft = If(PendingList.Count > 0, PendingList(PendingList.Count - 1), Nothing)
+                If index < 0 OrElse index >= list.Count Then
+                    Return False
+                End If
+                list.RemoveAt(index)
+                If list.Count > 0 Then
+                    LatestByUser(ownerId) = list(list.Count - 1)
+                Else
+                    PendingByUser.Remove(ownerId)
+                    LatestByUser.Remove(ownerId)
+                End If
                 removed = True
             End SyncLock
 
@@ -240,11 +339,16 @@ Namespace Models
         End Function
 
         Public Shared Sub ClearPending()
+            Dim ownerId = CurrentOwnerUserId
+            If String.IsNullOrEmpty(ownerId) Then
+                Return
+            End If
+
             Dim hadItems As Boolean
             SyncLock SyncRoot
-                hadItems = PendingList.Count > 0 OrElse _latestDraft IsNot Nothing
-                PendingList.Clear()
-                _latestDraft = Nothing
+                Dim removedList = PendingByUser.Remove(ownerId)
+                Dim removedLatest = LatestByUser.Remove(ownerId)
+                hadItems = removedList OrElse removedLatest
             End SyncLock
 
             If hadItems Then

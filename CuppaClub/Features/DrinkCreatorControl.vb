@@ -64,6 +64,7 @@ Namespace Features
 
         Private _currentDraft As ConfiguredDrinkDraft
         Private _lastSubmittedDraft As ConfiguredDrinkDraft
+        Private _isGuestNoticeBanner As Boolean
 
         Private ReadOnly _stateOverlay As New Panel()
         Private ReadOnly _stateCard As New Panel()
@@ -80,7 +81,13 @@ Namespace Features
         <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
         Public ReadOnly Property CurrentDraft As ConfiguredDrinkDraft
             Get
-                Return If(_currentDraft IsNot Nothing, _currentDraft.Clone(), Nothing)
+                Dim ownerId = DrinkDraftHandoff.CurrentOwnerUserId
+                If String.IsNullOrEmpty(ownerId) OrElse _currentDraft Is Nothing Then
+                    Return Nothing
+                End If
+                Dim copy = _currentDraft.Clone()
+                copy.OwnerUserId = ownerId
+                Return copy
             End Get
         End Property
 
@@ -88,7 +95,15 @@ Namespace Features
         <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
         Public ReadOnly Property LastSubmittedDraft As ConfiguredDrinkDraft
             Get
-                Return If(_lastSubmittedDraft IsNot Nothing, _lastSubmittedDraft.Clone(), Nothing)
+                Dim ownerId = DrinkDraftHandoff.CurrentOwnerUserId
+                If String.IsNullOrEmpty(ownerId) Then
+                    Return Nothing
+                End If
+                If _lastSubmittedDraft IsNot Nothing AndAlso
+                   String.Equals(_lastSubmittedDraft.OwnerUserId, ownerId, StringComparison.OrdinalIgnoreCase) Then
+                    Return _lastSubmittedDraft.Clone()
+                End If
+                Return DrinkDraftHandoff.LatestDraft
             End Get
         End Property
 
@@ -1595,6 +1610,7 @@ Namespace Features
             End If
 
             _currentDraft = validation.Draft
+            _currentDraft.OwnerUserId = DrinkDraftHandoff.CurrentOwnerUserId
             Dim optionsSummary = _currentDraft.FormatSelectedOptionsSummary()
             Dim fullSummaryText = $"{_currentDraft.ItemNameSnapshot} | {optionsSummary}"
             _summaryOptionsLabel.Text = fullSummaryText
@@ -1605,11 +1621,14 @@ Namespace Features
             _subtotalCaptionLabel.Text = $"Subtotal ({_currentDraft.Quantity}x)"
             _subtotalValueLabel.Text = AppTheme.FormatRupiah(_currentDraft.LineTotal)
 
+            Dim hasAuthenticatedOwner = DrinkDraftHandoff.HasAuthenticatedOwner
             Dim optionsBlocking = (_optionsState = OptionsViewState.Loading) OrElse (_optionsState = OptionsViewState.ErrorState)
-            _handoffBtn.Enabled = (Not _isSubmittingDraft) AndAlso (Not optionsBlocking)
+            _handoffBtn.Enabled = hasAuthenticatedOwner AndAlso (Not _isSubmittingDraft) AndAlso (Not optionsBlocking)
             _resetOptionsBtn.Enabled = Not _isSubmittingDraft
             _qtyMinusBtn.Enabled = (quantity > 1) AndAlso (Not _isSubmittingDraft)
             _qtyPlusBtn.Enabled = (quantity < DrinkOptionService.MaxQuantity) AndAlso (Not _isSubmittingDraft)
+
+            SyncAuthNoticeBanner(hasAuthenticatedOwner)
         End Sub
 
         Private Function ReadSafeQuantity() As Integer
@@ -1683,6 +1702,13 @@ Namespace Features
         Private Async Sub OnPrepareDraftClick(sender As Object, e As EventArgs)
             If _selectedItem Is Nothing OrElse _isSubmittingDraft Then Return
 
+            Dim expectedOwnerId = DrinkDraftHandoff.CurrentOwnerUserId
+            If String.IsNullOrEmpty(expectedOwnerId) Then
+                ShowFeedbackBanner("Masuk ke akun terlebih dahulu untuk menyimpan dan melihat draft pesanan.", isError:=True)
+                RefreshLiveSummary()
+                Return
+            End If
+
             Dim quantity = ReadSafeQuantity()
             If quantity <= 0 Then
                 ShowFeedbackBanner("Kuantitas wajib lebih dari 0.", isError:=True)
@@ -1706,6 +1732,13 @@ Namespace Features
                 _isSubmittingDraft = False
                 LayoutSummaryPanel()
 
+                ' Abort publish if the active account logged out or switched while validation was in flight.
+                If Not String.Equals(expectedOwnerId, DrinkDraftHandoff.CurrentOwnerUserId, StringComparison.OrdinalIgnoreCase) Then
+                    UpdateDraftButtonState()
+                    RefreshLiveSummary()
+                    Return
+                End If
+
                 If Not validation.IsValid OrElse validation.Draft Is Nothing Then
                     ShowFeedbackBanner(validation.ErrorMessage, isError:=True)
                     RefreshLiveSummary()
@@ -1716,6 +1749,7 @@ Namespace Features
                 End If
 
                 Dim finalizedDraft = validation.Draft.Clone()
+                finalizedDraft.OwnerUserId = expectedOwnerId
                 _currentDraft = finalizedDraft
                 _lastSubmittedDraft = finalizedDraft
                 DrinkDraftHandoff.Publish(finalizedDraft)
@@ -1736,6 +1770,12 @@ Namespace Features
         End Sub
 
         Private Sub OnViewDraftsClick(sender As Object, e As EventArgs)
+            If Not DrinkDraftHandoff.HasAuthenticatedOwner Then
+                UpdateDraftButtonState()
+                SyncAuthNoticeBanner(False)
+                Return
+            End If
+
             Using dlg As New DrinkDraftPreviewDialog()
                 dlg.ShowDialog(FindForm())
             End Using
@@ -1743,12 +1783,32 @@ Namespace Features
         End Sub
 
         Private Sub UpdateDraftButtonState()
-            Dim count = DrinkDraftHandoff.PendingCount
-            _viewDraftsBtn.Enabled = count > 0
+            Dim hasOwner = DrinkDraftHandoff.HasAuthenticatedOwner
+            Dim count = If(hasOwner, DrinkDraftHandoff.PendingCount, 0)
+            _viewDraftsBtn.Enabled = hasOwner AndAlso (count > 0)
             LayoutSummaryPanel()
         End Sub
 
+        Private Sub SyncAuthNoticeBanner(hasAuthenticatedOwner As Boolean)
+            If Not hasAuthenticatedOwner Then
+                If Not _feedbackBanner.Visible OrElse _isGuestNoticeBanner Then
+                    Dim guestMsg = "Masuk ke akun terlebih dahulu untuk menyimpan dan melihat draft pesanan."
+                    _isGuestNoticeBanner = True
+                    _feedbackBanner.Text = guestMsg
+                    _toolTip.SetToolTip(_feedbackBanner, guestMsg)
+                    _feedbackBanner.BackColor = AppTheme.WarningTint
+                    _feedbackBanner.ForeColor = AppTheme.WarningText
+                    _feedbackBanner.Visible = True
+                    LayoutSummaryPanel()
+                End If
+            ElseIf _isGuestNoticeBanner Then
+                _isGuestNoticeBanner = False
+                HideFeedbackBanner()
+            End If
+        End Sub
+
         Private Sub ShowFeedbackBanner(message As String, isError As Boolean)
+            _isGuestNoticeBanner = False
             _feedbackBanner.Text = message
             _toolTip.SetToolTip(_feedbackBanner, message)
             If isError Then
@@ -1763,6 +1823,7 @@ Namespace Features
         End Sub
 
         Private Sub HideFeedbackBanner()
+            _isGuestNoticeBanner = False
             If Not _feedbackBanner.Visible AndAlso String.IsNullOrEmpty(_feedbackBanner.Text) Then Return
             _feedbackBanner.Visible = False
             _feedbackBanner.Text = String.Empty
@@ -1972,12 +2033,20 @@ Namespace Features
         End Sub
 
         Private Sub OnSessionChanged(sender As Object, e As EventArgs)
+            _lastSubmittedDraft = Nothing
             If IsDisposed OrElse Not IsHandleCreated Then Return
             If InvokeRequired Then
-                BeginInvoke(New Action(Sub() LoadAvailableMenuAsync()))
+                BeginInvoke(New Action(AddressOf ApplySessionChangeOnUiThread))
             Else
-                LoadAvailableMenuAsync()
+                ApplySessionChangeOnUiThread()
             End If
+        End Sub
+
+        Private Sub ApplySessionChangeOnUiThread()
+            If IsDisposed OrElse Not IsHandleCreated Then Return
+            HideFeedbackBanner()
+            UpdateDraftButtonState()
+            RefreshLiveSummary()
         End Sub
 
         Private Sub OnPendingDraftsChanged(sender As Object, e As EventArgs)
@@ -2251,6 +2320,7 @@ Namespace Features
         Private NotInheritable Class DrinkDraftPreviewDialog
             Inherits Form
 
+            Private ReadOnly _infoLabel As New Label()
             Private ReadOnly _draftListBox As New ListBox()
             Private ReadOnly _jsonPreviewBox As New TextBox()
             Private ReadOnly _totalLabel As New Label()
@@ -2283,15 +2353,12 @@ Namespace Features
                     .Text = "Daftar Draft Minuman (Handoff ke Alur Pesanan)"
                 }
 
-                Dim infoLbl As New Label With {
-                    .AutoSize = False,
-                    .Font = AppTheme.FontCaption,
-                    .ForeColor = AppTheme.TextSecondary,
-                    .Location = New Point(20, 40),
-                    .Size = New Size(620, 32),
-                    .TabIndex = 1,
-                    .Text = "Draft ini disimpan sementara di memori untuk diserahkan ke Friends Order Room atau alur pesanan. Belum menulis record orders atau order_items ke database."
-                }
+                _infoLabel.AutoSize = False
+                _infoLabel.Font = AppTheme.FontCaption
+                _infoLabel.ForeColor = AppTheme.TextSecondary
+                _infoLabel.Location = New Point(20, 40)
+                _infoLabel.Size = New Size(620, 32)
+                _infoLabel.TabIndex = 1
 
                 _draftListBox.Location = New Point(20, 78)
                 _draftListBox.Size = New Size(280, 294)
@@ -2373,7 +2440,7 @@ Namespace Features
 
                 Controls.AddRange({
                     headerLbl,
-                    infoLbl,
+                    _infoLabel,
                     _draftListBox,
                     jsonLbl,
                     _jsonPreviewBox,
@@ -2385,14 +2452,39 @@ Namespace Features
                     _closeBtn
                 })
 
+                AddHandler AppSession.SessionChanged, AddressOf OnExternalDraftOrSessionChanged
+                AddHandler DrinkDraftHandoff.PendingDraftsChanged, AddressOf OnExternalDraftOrSessionChanged
                 ReloadDrafts()
             End Sub
 
+            Private Sub OnExternalDraftOrSessionChanged(sender As Object, e As EventArgs)
+                If IsDisposed OrElse Not IsHandleCreated Then Return
+                If InvokeRequired Then
+                    BeginInvoke(New Action(AddressOf ReloadDrafts))
+                Else
+                    ReloadDrafts()
+                End If
+            End Sub
+
             Private Sub ReloadDrafts()
-                _drafts = DrinkDraftHandoff.GetPendingDrafts()
                 _draftListBox.Items.Clear()
                 _copyStatusLabel.Visible = False
 
+                If Not DrinkDraftHandoff.HasAuthenticatedOwner Then
+                    _drafts = New List(Of ConfiguredDrinkDraft)()
+                    _infoLabel.Text = "Tidak ada akun aktif. Masuk ke akun terlebih dahulu untuk melihat atau mengelola draft pesanan."
+                    _totalLabel.Text = "Total draft siap kirim: 0 item | Estimasi subtotal: " & AppTheme.FormatRupiah(0D)
+                    _clearAllBtn.Enabled = False
+                    _removeBtn.Enabled = False
+                    _copyJsonBtn.Enabled = False
+                    _jsonPreviewBox.Text = "Masuk ke akun terlebih dahulu untuk melihat draft pesanan."
+                    Return
+                End If
+
+                Dim activeLabel = If(AppSession.CurrentUser IsNot Nothing, AppSession.CurrentUser.DisplayLabel, "Pengguna")
+                _infoLabel.Text = $"Akun aktif: {activeLabel}. Draft disimpan terpisah per akun di memori untuk diteruskan ke Friends Order Room. Belum menulis orders/order_items ke database."
+
+                _drafts = DrinkDraftHandoff.GetPendingDrafts()
                 Dim grandTotal As Decimal = 0D
                 For i = 0 To _drafts.Count - 1
                     Dim d = _drafts(i)
@@ -2412,9 +2504,16 @@ Namespace Features
 
             Private Sub UpdateSelectedJsonPreview()
                 _copyStatusLabel.Visible = False
+                If Not DrinkDraftHandoff.HasAuthenticatedOwner Then
+                    _jsonPreviewBox.Text = "Masuk ke akun terlebih dahulu untuk melihat draft pesanan."
+                    _removeBtn.Enabled = False
+                    _copyJsonBtn.Enabled = False
+                    Return
+                End If
+
                 Dim idx = _draftListBox.SelectedIndex
                 If idx < 0 OrElse idx >= _drafts.Count Then
-                    _jsonPreviewBox.Text = "Belum ada draft tersimpan."
+                    _jsonPreviewBox.Text = "Belum ada draft tersimpan untuk akun ini."
                     _removeBtn.Enabled = False
                     _copyJsonBtn.Enabled = False
                     Return
@@ -2454,6 +2553,8 @@ Namespace Features
 
             Protected Overrides Sub Dispose(disposing As Boolean)
                 If disposing Then
+                    RemoveHandler AppSession.SessionChanged, AddressOf OnExternalDraftOrSessionChanged
+                    RemoveHandler DrinkDraftHandoff.PendingDraftsChanged, AddressOf OnExternalDraftOrSessionChanged
                     _monoFont.Dispose()
                 End If
                 MyBase.Dispose(disposing)
