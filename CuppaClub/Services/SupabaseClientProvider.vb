@@ -89,8 +89,8 @@ Namespace Services
             End If
 
             Try
-                Dim restPingUrl = validation.NormalizedUrl & "/rest/v1/"
-                Using request As New HttpRequestMessage(HttpMethod.Get, restPingUrl)
+                Dim authHealthUrl = validation.NormalizedUrl & "/auth/v1/health"
+                Using request As New HttpRequestMessage(HttpMethod.Get, authHealthUrl)
                     request.Headers.Add("apikey", validation.NormalizedKey)
                     Using response = Await PingClient.SendAsync(request).ConfigureAwait(False)
                         If response.StatusCode = HttpStatusCode.Unauthorized OrElse response.StatusCode = HttpStatusCode.Forbidden Then
