@@ -41,9 +41,23 @@ Saat aplikasi berjalan, `AppConfig.Load()` membaca konfigurasi Supabase dengan u
 
 Target `ValidatePackagedSupabaseConfig` akan memeriksa `CuppaClub/appsettings.json` secara otomatis sebelum proses publish dimulai. Jika file tidak ada, masih berisi placeholder, bukan HTTPS, atau memakai secret key, proses publish akan dibatalkan.
 
-### Opsi A: Menggunakan .NET CLI
+`CuppaClub.vbproj` mendeklarasikan `<AppDesignerFolder>My Project</AppDesignerFolder>` secara eksplisit agar baik Visual Studio 2026 maupun `.NET 10 SDK` CLI sama-sama menemukan `CuppaClub/My Project/PublishProfiles/FolderProfile.pubxml` secara otomatis.
+
+### Opsi A: Menggunakan .NET CLI (Memakai Profil Resmi)
 
 Jalankan dari root repository:
+
+```powershell
+dotnet publish CuppaClub/CuppaClub.vbproj -p:PublishProfile=FolderProfile
+```
+
+Atau dengan path absolut ke file `.pubxml`:
+
+```powershell
+dotnet publish CuppaClub/CuppaClub.vbproj -p:PublishProfileFullPath="C:\path\ke\CuppaClub\My Project\PublishProfiles\FolderProfile.pubxml"
+```
+
+Alternatif tanpa file profil (parameter CLI langsung):
 
 ```powershell
 dotnet publish CuppaClub/CuppaClub.vbproj -c Release -r win-x64 --self-contained true
@@ -55,7 +69,7 @@ Hasil publish akan berada di:
 CuppaClub\bin\Release\net10.0-windows\win-x64\publish\
 ```
 
-### Opsi B: Menggunakan Visual Studio (Folder Profile)
+### Opsi B: Menggunakan Visual Studio 2026 (Folder Profile)
 
 1. Klik kanan proyek **CuppaClub** di Solution Explorer lalu pilih **Publish...**.
 2. Pilih profil **FolderProfile** (`CuppaClub/My Project/PublishProfiles/FolderProfile.pubxml`).
@@ -65,6 +79,7 @@ CuppaClub\bin\Release\net10.0-windows\win-x64\publish\
    - Deployment Mode: `Self-contained`
    - Target Runtime: `win-x64`
    - Produce single file: `false` (tidak dicentang, agar file sidecar `appsettings.json` tetap terbaca)
+   - PublishDir / PublishUrl: `bin\Release\net10.0-windows\win-x64\publish\`
 4. Klik **Publish**.
 
 ## 5. Cara Mendistribusikan Hasil Publish ke Komputer Lain
