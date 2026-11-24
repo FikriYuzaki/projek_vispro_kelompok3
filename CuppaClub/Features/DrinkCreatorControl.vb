@@ -64,6 +64,7 @@ Namespace Features
 
         Private _currentDraft As ConfiguredDrinkDraft
         Private _lastSubmittedDraft As ConfiguredDrinkDraft
+        Private _lastObservedSessionUserId As String = String.Empty
         Private _isGuestNoticeBanner As Boolean
 
         Private ReadOnly _stateOverlay As New Panel()
@@ -85,9 +86,13 @@ Namespace Features
                 If String.IsNullOrEmpty(ownerId) OrElse _currentDraft Is Nothing Then
                     Return Nothing
                 End If
-                Dim copy = _currentDraft.Clone()
-                copy.OwnerUserId = ownerId
-                Return copy
+                If Not String.Equals(_lastObservedSessionUserId, ownerId, StringComparison.OrdinalIgnoreCase) Then
+                    Return Nothing
+                End If
+                If Not String.Equals(_currentDraft.OwnerUserId, ownerId, StringComparison.OrdinalIgnoreCase) Then
+                    Return Nothing
+                End If
+                Return _currentDraft.Clone()
             End Get
         End Property
 
@@ -127,6 +132,7 @@ Namespace Features
             End If
 
             _drinkOptionService = If(drinkOptionService, New DrinkOptionService())
+            _lastObservedSessionUserId = DrinkDraftHandoff.CurrentOwnerUserId
             _runtimeInitialized = True
             WireRuntimeBehavior()
 
@@ -141,6 +147,7 @@ Namespace Features
                 Return
             End If
 
+            _lastObservedSessionUserId = DrinkDraftHandoff.CurrentOwnerUserId
             LayoutToolbar()
             LayoutWorkspace()
             UpdateDraftButtonState()
@@ -661,7 +668,8 @@ Namespace Features
 
         Private Sub ApplyFiltersAndRender(
             Optional preserveFeedback As Boolean = False,
-            Optional forceReloadOptions As Boolean = False
+            Optional forceReloadOptions As Boolean = False,
+            Optional autoSelectFirst As Boolean = True
         )
             If Not _drinkOptionService.IsDataSourceConfigured Then
                 ShowStateOverlay(CreatorViewState.Unconfigured, String.Empty)
@@ -700,15 +708,16 @@ Namespace Features
             _availableCountLabel.Text = $"Menampilkan {_filteredItems.Count} dari {_availableItems.Count} item tersedia"
             LayoutToolbar()
 
-            RenderDrinkSelectorCards(preserveFeedback, forceReloadOptions)
+            RenderDrinkSelectorCards(preserveFeedback, forceReloadOptions, autoSelectFirst)
         End Sub
 
         Private Sub RenderDrinkSelectorCards(
             Optional preserveFeedback As Boolean = False,
-            Optional forceReloadOptions As Boolean = False
+            Optional forceReloadOptions As Boolean = False,
+            Optional autoSelectFirst As Boolean = True
         )
             Dim nextSelection = _filteredItems.FirstOrDefault(Function(x) String.Equals(x.Id, _selectedItemId, StringComparison.OrdinalIgnoreCase))
-            If nextSelection Is Nothing AndAlso _filteredItems.Count > 0 Then
+            If nextSelection Is Nothing AndAlso autoSelectFirst AndAlso _filteredItems.Count > 0 Then
                 nextSelection = _filteredItems(0)
             End If
 
@@ -754,6 +763,10 @@ Namespace Features
                     UpdateSelectedHeader(nextSelection)
                     RefreshLiveSummary()
                 End If
+            Else
+                ClearSelectedItem()
+                RenderOptionsSection()
+                RefreshLiveSummary()
             End If
         End Sub
 
@@ -786,7 +799,7 @@ Namespace Features
             If Not isSameItem OrElse forceReloadOptions Then
                 _isUpdatingSelectionControls = True
                 Try
-                    _quantityInput.Value = 1D
+                    SetQuantityControlValue(1)
                     _notesTextBox.Clear()
                 Finally
                     _isUpdatingSelectionControls = False
@@ -815,6 +828,7 @@ Namespace Features
             _optionsLoadVersion += 1
             Dim activeVersion = _optionsLoadVersion
             Dim expectedItemId = item.Id
+            Dim expectedOwnerId = _lastObservedSessionUserId
 
             _optionsState = OptionsViewState.Loading
             _optionsErrorMessage = String.Empty
@@ -826,6 +840,9 @@ Namespace Features
             Try
                 Dim loadedOptions = Await _drinkOptionService.GetOptionsForMenuItemAsync(expectedItemId)
                 If IsDisposed OrElse Not IsHandleCreated OrElse activeVersion <> _optionsLoadVersion Then
+                    Return
+                End If
+                If Not String.Equals(_lastObservedSessionUserId, expectedOwnerId, StringComparison.OrdinalIgnoreCase) Then
                     Return
                 End If
                 If Not String.Equals(_selectedItemId, expectedItemId, StringComparison.OrdinalIgnoreCase) Then
@@ -847,6 +864,9 @@ Namespace Features
                 If IsDisposed OrElse Not IsHandleCreated OrElse activeVersion <> _optionsLoadVersion Then
                     Return
                 End If
+                If Not String.Equals(_lastObservedSessionUserId, expectedOwnerId, StringComparison.OrdinalIgnoreCase) Then
+                    Return
+                End If
                 If Not String.Equals(_selectedItemId, expectedItemId, StringComparison.OrdinalIgnoreCase) Then
                     Return
                 End If
@@ -861,17 +881,40 @@ Namespace Features
         End Sub
 
         Private Sub ClearSelectedItem()
+            _optionsLoadVersion += 1
             _selectedItem = Nothing
             _selectedItemId = String.Empty
             _currentDraft = Nothing
-            _currentItemOptions = New List(Of MenuOption)()
-            _selectedOptionIds = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            _currentItemOptions.Clear()
+            _selectedOptionIds.Clear()
             _optionsState = OptionsViewState.Idle
+            _optionsErrorMessage = String.Empty
+            _isUpdatingSelectionControls = True
+            Try
+                SetQuantityControlValue(1)
+                _notesTextBox.Clear()
+            Finally
+                _isUpdatingSelectionControls = False
+            End Try
+            ResetSelectedHeader()
+        End Sub
+
+        Private Sub ResetSelectedHeader()
+            _selectedCategoryLabel.Text = "Belum dipilih"
+            _selectedAvailabilityTag.Visible = False
+            _selectedCustomTag.Visible = False
+            _selectedTitleLabel.Text = "Pilih minuman dari daftar"
+            _selectedDescriptionLabel.Text = "Opsi kustomisasi akan dimuat berdasarkan item yang dipilih."
+            _toolTip.SetToolTip(_selectedDescriptionLabel, String.Empty)
+            _selectedBasePriceLabel.Text = "Harga dasar: " & AppTheme.FormatRupiah(0D)
             SetSelectedPhoto(Nothing)
+            LayoutSelectedHeader()
         End Sub
 
         Private Sub UpdateSelectedHeader(item As Models.MenuItem)
             _selectedCategoryLabel.Text = item.Category
+            _selectedAvailabilityTag.Visible = True
+            _selectedCustomTag.Visible = True
             AppTheme.ApplyStatusTag(_selectedAvailabilityTag, "Tersedia", AppTheme.SageTint, AppTheme.SageText)
 
             If item.SupportsCustomization Then
@@ -902,6 +945,17 @@ Namespace Features
                 DisposeChildControls(_optionsHostPanel)
 
                 Select Case _optionsState
+                    Case OptionsViewState.Idle
+                        _optionsHostPanel.Controls.Add(BuildOptionsStatusCard(
+                            cardWidth,
+                            "Belum Ada Minuman Dipilih",
+                            "Pilih minuman dari daftar di sebelah kiri untuk memuat opsi kustomisasi, mengatur kuantitas, dan menyiapkan draft pesanan.",
+                            AppTheme.TaupeTint,
+                            AppTheme.TaupeText,
+                            showProgress:=False,
+                            actionText:=String.Empty,
+                            onAction:=Nothing))
+
                     Case OptionsViewState.Loading
                         _optionsHostPanel.Controls.Add(BuildOptionsStatusCard(
                             cardWidth,
@@ -1544,6 +1598,9 @@ Namespace Features
         End Sub
 
         Private Sub RefreshLiveSummary()
+            Dim activeOwnerId = DrinkDraftHandoff.CurrentOwnerUserId
+            Dim hasAuthenticatedOwner = Not String.IsNullOrEmpty(activeOwnerId)
+
             If _selectedItem Is Nothing Then
                 _currentDraft = Nothing
                 _summaryOptionsLabel.Text = "Belum ada item dipilih."
@@ -1559,6 +1616,7 @@ Namespace Features
                 _qtyPlusBtn.Enabled = False
                 _quantityInput.Enabled = False
                 _notesTextBox.Enabled = False
+                SyncAuthNoticeBanner(hasAuthenticatedOwner)
                 Return
             End If
 
@@ -1580,6 +1638,7 @@ Namespace Features
                 _resetOptionsBtn.Enabled = Not _isSubmittingDraft
                 _qtyMinusBtn.Enabled = False
                 _qtyPlusBtn.Enabled = Not _isSubmittingDraft
+                SyncAuthNoticeBanner(hasAuthenticatedOwner)
                 Return
             End If
 
@@ -1606,22 +1665,28 @@ Namespace Features
                 _resetOptionsBtn.Enabled = Not _isSubmittingDraft
                 _qtyMinusBtn.Enabled = (quantity > 1) AndAlso (Not _isSubmittingDraft)
                 _qtyPlusBtn.Enabled = (quantity < DrinkOptionService.MaxQuantity) AndAlso (Not _isSubmittingDraft)
+                SyncAuthNoticeBanner(hasAuthenticatedOwner)
                 Return
             End If
 
-            _currentDraft = validation.Draft
-            _currentDraft.OwnerUserId = DrinkDraftHandoff.CurrentOwnerUserId
-            Dim optionsSummary = _currentDraft.FormatSelectedOptionsSummary()
-            Dim fullSummaryText = $"{_currentDraft.ItemNameSnapshot} | {optionsSummary}"
+            Dim previewDraft = validation.Draft
+            If hasAuthenticatedOwner AndAlso String.Equals(_lastObservedSessionUserId, activeOwnerId, StringComparison.OrdinalIgnoreCase) Then
+                previewDraft.OwnerUserId = activeOwnerId
+                _currentDraft = previewDraft
+            Else
+                _currentDraft = Nothing
+            End If
+
+            Dim optionsSummary = previewDraft.FormatSelectedOptionsSummary()
+            Dim fullSummaryText = $"{previewDraft.ItemNameSnapshot} | {optionsSummary}"
             _summaryOptionsLabel.Text = fullSummaryText
             _toolTip.SetToolTip(_summaryOptionsLabel, fullSummaryText)
-            _basePriceValueLabel.Text = AppTheme.FormatRupiah(_currentDraft.UnitBasePrice)
-            _extraPriceValueLabel.Text = If(_currentDraft.OptionsExtraPrice > 0D, "+" & AppTheme.FormatRupiah(_currentDraft.OptionsExtraPrice), AppTheme.FormatRupiah(0D))
-            _unitTotalValueLabel.Text = AppTheme.FormatRupiah(_currentDraft.UnitTotal)
-            _subtotalCaptionLabel.Text = $"Subtotal ({_currentDraft.Quantity}x)"
-            _subtotalValueLabel.Text = AppTheme.FormatRupiah(_currentDraft.LineTotal)
+            _basePriceValueLabel.Text = AppTheme.FormatRupiah(previewDraft.UnitBasePrice)
+            _extraPriceValueLabel.Text = If(previewDraft.OptionsExtraPrice > 0D, "+" & AppTheme.FormatRupiah(previewDraft.OptionsExtraPrice), AppTheme.FormatRupiah(0D))
+            _unitTotalValueLabel.Text = AppTheme.FormatRupiah(previewDraft.UnitTotal)
+            _subtotalCaptionLabel.Text = $"Subtotal ({previewDraft.Quantity}x)"
+            _subtotalValueLabel.Text = AppTheme.FormatRupiah(previewDraft.LineTotal)
 
-            Dim hasAuthenticatedOwner = DrinkDraftHandoff.HasAuthenticatedOwner
             Dim optionsBlocking = (_optionsState = OptionsViewState.Loading) OrElse (_optionsState = OptionsViewState.ErrorState)
             _handoffBtn.Enabled = hasAuthenticatedOwner AndAlso (Not _isSubmittingDraft) AndAlso (Not optionsBlocking)
             _resetOptionsBtn.Enabled = Not _isSubmittingDraft
@@ -1915,6 +1980,7 @@ Namespace Features
         End Sub
 
         Private Sub OnSearchTextChanged(sender As Object, e As EventArgs)
+            If _isUpdatingSelectionControls Then Return
             _clearSearchBtn.Enabled = _searchTextBox.TextLength > 0
             ApplyFiltersAndRender()
         End Sub
@@ -2033,7 +2099,13 @@ Namespace Features
         End Sub
 
         Private Sub OnSessionChanged(sender As Object, e As EventArgs)
-            _lastSubmittedDraft = Nothing
+            Dim nextOwnerId = DrinkDraftHandoff.CurrentOwnerUserId
+            If Not String.Equals(_lastObservedSessionUserId, nextOwnerId, StringComparison.OrdinalIgnoreCase) Then
+                _currentDraft = Nothing
+                _lastSubmittedDraft = Nothing
+                _optionsLoadVersion += 1
+            End If
+
             If IsDisposed OrElse Not IsHandleCreated Then Return
             If InvokeRequired Then
                 BeginInvoke(New Action(AddressOf ApplySessionChangeOnUiThread))
@@ -2044,9 +2116,44 @@ Namespace Features
 
         Private Sub ApplySessionChangeOnUiThread()
             If IsDisposed OrElse Not IsHandleCreated Then Return
-            HideFeedbackBanner()
+
+            Dim currentOwnerId = DrinkDraftHandoff.CurrentOwnerUserId
+            Dim ownerChanged = Not String.Equals(_lastObservedSessionUserId, currentOwnerId, StringComparison.OrdinalIgnoreCase)
+            If ownerChanged Then
+                _lastObservedSessionUserId = currentOwnerId
+                ResetBuilderStateForAccountSwitch()
+            End If
+
             UpdateDraftButtonState()
             RefreshLiveSummary()
+        End Sub
+
+        Private Sub ResetBuilderStateForAccountSwitch()
+            _lastSubmittedDraft = Nothing
+            HideFeedbackBanner()
+            ClearSelectedItem()
+
+            _isUpdatingSelectionControls = True
+            Try
+                _searchTextBox.Clear()
+                _clearSearchBtn.Enabled = False
+                _selectedCategory = "Semua"
+                UpdateCategoryButtonStyles()
+            Finally
+                _isUpdatingSelectionControls = False
+            End Try
+
+            If _drinkOptionService.IsDataSourceConfigured AndAlso _availableItems.Count > 0 Then
+                ApplyFiltersAndRender(preserveFeedback:=False, forceReloadOptions:=False, autoSelectFirst:=False)
+            Else
+                For Each ctrl As Control In _drinkCardsPanel.Controls
+                    Dim card = TryCast(ctrl, DrinkSelectorCard)
+                    If card IsNot Nothing Then
+                        card.IsSelected = False
+                    End If
+                Next
+                RenderOptionsSection()
+            End If
         End Sub
 
         Private Sub OnPendingDraftsChanged(sender As Object, e As EventArgs)
