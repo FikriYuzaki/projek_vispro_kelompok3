@@ -8,6 +8,7 @@ Imports System.Text.Json
 Namespace Core
     Public NotInheritable Class SupabaseSettings
         Public Property SupabaseUrl As String = String.Empty
+        ' Property name retained for backward compatibility; accepts either sb_publishable_... or legacy anon JWT.
         Public Property SupabaseAnonKey As String = String.Empty
         Public Property ConfigSource As String = "Belum dikonfigurasi"
 
@@ -52,27 +53,44 @@ Namespace Core
             Return String.Empty
         End Function
 
+        Public Shared Function GetPackagedConfigPath() As String
+            Return Path.Combine(AppContext.BaseDirectory, "appsettings.json")
+        End Function
+
         Public Shared Function Load() As SupabaseSettings
-            Dim userConfigPath = GetLocalUserConfigPath()
-            Dim fromUserFile = TryReadJsonConfig(userConfigPath, userConfigPath)
-            If fromUserFile IsNot Nothing Then
-                Return fromUserFile
-            End If
-
-            Dim workspaceConfigPath = FindWorkspaceLocalConfigPath()
-            If Not String.IsNullOrEmpty(workspaceConfigPath) Then
-                Dim fromWorkspace = TryReadJsonConfig(workspaceConfigPath, "appsettings.local.json")
-                If fromWorkspace IsNot Nothing Then
-                    Return fromWorkspace
-                End If
-            End If
-
             Dim envUrl = FirstNonEmpty(
                 Environment.GetEnvironmentVariable("CUPPACLUB_SUPABASE_URL"),
                 Environment.GetEnvironmentVariable("SUPABASE_URL"))
             Dim envKey = FirstNonEmpty(
                 Environment.GetEnvironmentVariable("CUPPACLUB_SUPABASE_ANON_KEY"),
                 Environment.GetEnvironmentVariable("SUPABASE_ANON_KEY"))
+
+            Return LoadFrom(
+                GetLocalUserConfigPath(),
+                FindWorkspaceLocalConfigPath(),
+                envUrl,
+                envKey,
+                GetPackagedConfigPath())
+        End Function
+
+        Public Shared Function LoadFrom(
+            userConfigPath As String,
+            workspaceConfigPath As String,
+            envUrl As String,
+            envKey As String,
+            packagedConfigPath As String) As SupabaseSettings
+
+            Dim fromUserFile = TryReadJsonConfig(userConfigPath, userConfigPath)
+            If fromUserFile IsNot Nothing Then
+                Return fromUserFile
+            End If
+
+            If Not String.IsNullOrEmpty(workspaceConfigPath) Then
+                Dim fromWorkspace = TryReadJsonConfig(workspaceConfigPath, "appsettings.local.json")
+                If fromWorkspace IsNot Nothing Then
+                    Return fromWorkspace
+                End If
+            End If
 
             If Not String.IsNullOrWhiteSpace(envUrl) AndAlso Not String.IsNullOrWhiteSpace(envKey) Then
                 Dim validation = ValidateSettings(envUrl, envKey)
@@ -83,6 +101,11 @@ Namespace Core
                         .ConfigSource = "Environment Variable"
                     }
                 End If
+            End If
+
+            Dim fromPackaged = TryReadJsonConfig(packagedConfigPath, "appsettings.json (Bundled)")
+            If fromPackaged IsNot Nothing Then
+                Return fromPackaged
             End If
 
             Return New SupabaseSettings()
@@ -107,12 +130,20 @@ Namespace Core
                 Return Invalid("URL Supabase harus menggunakan HTTPS (kecuali localhost).")
             End If
 
+            If IsPlaceholderValue(url) Then
+                Return Invalid("URL Supabase masih berisi nilai placeholder. Isi URL proyek Supabase yang valid.")
+            End If
+
             If String.IsNullOrWhiteSpace(key) Then
                 Return Invalid("Publishable / Anon Key Supabase wajib diisi.")
             End If
 
             If key.Any(Function(c) Char.IsWhiteSpace(c)) Then
                 Return Invalid("Key Supabase tidak boleh mengandung spasi atau baris baru.")
+            End If
+
+            If IsPlaceholderValue(key) Then
+                Return Invalid("Publishable / Anon Key Supabase masih berisi nilai placeholder. Isi key proyek Supabase yang valid.")
             End If
 
             ' Reject privileged keys so desktop clients never ship with RLS-bypass credentials.
@@ -204,6 +235,31 @@ Namespace Core
             Catch
                 Return False
             End Try
+
+            Return False
+        End Function
+
+        Private Shared Function IsPlaceholderValue(value As String) As Boolean
+            If String.IsNullOrWhiteSpace(value) Then
+                Return True
+            End If
+
+            Dim tokens As String() = {
+                "YOUR_",
+                "REPLACE_ME",
+                "CHANGE_ME",
+                "PLACEHOLDER",
+                "<",
+                ">",
+                "xxxx.supabase.co",
+                "example.supabase.co"
+            }
+
+            For Each token In tokens
+                If value.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    Return True
+                End If
+            Next
 
             Return False
         End Function
