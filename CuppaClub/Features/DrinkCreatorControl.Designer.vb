@@ -110,7 +110,7 @@ Namespace Features
             Me._toolbarPanel.Dock = System.Windows.Forms.DockStyle.Top
             Me._toolbarPanel.Location = New System.Drawing.Point(0, 0)
             Me._toolbarPanel.Name = "_toolbarPanel"
-            Me._toolbarPanel.Size = New System.Drawing.Size(932, 98)
+            Me._toolbarPanel.Size = New System.Drawing.Size(932, 96)
             Me._toolbarPanel.TabIndex = 0
             '
             '_searchLabel
@@ -344,15 +344,15 @@ Namespace Features
             Me._selectedHeaderPanel.Dock = System.Windows.Forms.DockStyle.Top
             Me._selectedHeaderPanel.Location = New System.Drawing.Point(0, 0)
             Me._selectedHeaderPanel.Name = "_selectedHeaderPanel"
-            Me._selectedHeaderPanel.Size = New System.Drawing.Size(584, 114)
+            Me._selectedHeaderPanel.Size = New System.Drawing.Size(584, 100)
             Me._selectedHeaderPanel.TabIndex = 0
             '
             '_selectedPhotoBox
             '
             Me._selectedPhotoBox.BackColor = System.Drawing.Color.FromArgb(243, 232, 220)
-            Me._selectedPhotoBox.Location = New System.Drawing.Point(20, 14)
+            Me._selectedPhotoBox.Location = New System.Drawing.Point(20, 12)
             Me._selectedPhotoBox.Name = "_selectedPhotoBox"
-            Me._selectedPhotoBox.Size = New System.Drawing.Size(86, 86)
+            Me._selectedPhotoBox.Size = New System.Drawing.Size(76, 76)
             Me._selectedPhotoBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom
             Me._selectedPhotoBox.TabIndex = 0
             Me._selectedPhotoBox.TabStop = False
@@ -362,7 +362,7 @@ Namespace Features
             Me._selectedCategoryLabel.AutoSize = True
             Me._selectedCategoryLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._selectedCategoryLabel.ForeColor = System.Drawing.Color.FromArgb(110, 86, 71)
-            Me._selectedCategoryLabel.Location = New System.Drawing.Point(120, 16)
+            Me._selectedCategoryLabel.Location = New System.Drawing.Point(110, 13)
             Me._selectedCategoryLabel.Name = "_selectedCategoryLabel"
             Me._selectedCategoryLabel.Size = New System.Drawing.Size(44, 15)
             Me._selectedCategoryLabel.TabIndex = 1
@@ -374,7 +374,7 @@ Namespace Features
             Me._selectedAvailabilityTag.BackColor = System.Drawing.Color.FromArgb(234, 242, 236)
             Me._selectedAvailabilityTag.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._selectedAvailabilityTag.ForeColor = System.Drawing.Color.FromArgb(47, 79, 56)
-            Me._selectedAvailabilityTag.Location = New System.Drawing.Point(174, 13)
+            Me._selectedAvailabilityTag.Location = New System.Drawing.Point(164, 10)
             Me._selectedAvailabilityTag.Name = "_selectedAvailabilityTag"
             Me._selectedAvailabilityTag.Padding = New System.Windows.Forms.Padding(8, 2, 8, 2)
             Me._selectedAvailabilityTag.Size = New System.Drawing.Size(66, 19)
@@ -387,7 +387,7 @@ Namespace Features
             Me._selectedCustomTag.BackColor = System.Drawing.Color.FromArgb(251, 236, 239)
             Me._selectedCustomTag.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._selectedCustomTag.ForeColor = System.Drawing.Color.FromArgb(143, 53, 71)
-            Me._selectedCustomTag.Location = New System.Drawing.Point(248, 13)
+            Me._selectedCustomTag.Location = New System.Drawing.Point(238, 10)
             Me._selectedCustomTag.Name = "_selectedCustomTag"
             Me._selectedCustomTag.Padding = New System.Windows.Forms.Padding(8, 2, 8, 2)
             Me._selectedCustomTag.Size = New System.Drawing.Size(96, 19)
@@ -399,9 +399,9 @@ Namespace Features
             Me._selectedTitleLabel.AutoEllipsis = True
             Me._selectedTitleLabel.Font = New System.Drawing.Font("Segoe UI", 12.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._selectedTitleLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._selectedTitleLabel.Location = New System.Drawing.Point(120, 36)
+            Me._selectedTitleLabel.Location = New System.Drawing.Point(110, 32)
             Me._selectedTitleLabel.Name = "_selectedTitleLabel"
-            Me._selectedTitleLabel.Size = New System.Drawing.Size(444, 24)
+            Me._selectedTitleLabel.Size = New System.Drawing.Size(454, 23)
             Me._selectedTitleLabel.TabIndex = 4
             Me._selectedTitleLabel.Text = "Pilih minuman dari daftar"
             '
@@ -410,9 +410,9 @@ Namespace Features
             Me._selectedDescriptionLabel.AutoEllipsis = True
             Me._selectedDescriptionLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point)
             Me._selectedDescriptionLabel.ForeColor = System.Drawing.Color.FromArgb(110, 86, 71)
-            Me._selectedDescriptionLabel.Location = New System.Drawing.Point(120, 61)
+            Me._selectedDescriptionLabel.Location = New System.Drawing.Point(110, 56)
             Me._selectedDescriptionLabel.Name = "_selectedDescriptionLabel"
-            Me._selectedDescriptionLabel.Size = New System.Drawing.Size(444, 18)
+            Me._selectedDescriptionLabel.Size = New System.Drawing.Size(454, 17)
             Me._selectedDescriptionLabel.TabIndex = 5
             Me._selectedDescriptionLabel.Text = "Opsi kustomisasi akan dimuat berdasarkan item yang dipilih."
             '
@@ -421,7 +421,7 @@ Namespace Features
             Me._selectedBasePriceLabel.AutoSize = True
             Me._selectedBasePriceLabel.Font = New System.Drawing.Font("Segoe UI", 9.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._selectedBasePriceLabel.ForeColor = System.Drawing.Color.FromArgb(107, 68, 46)
-            Me._selectedBasePriceLabel.Location = New System.Drawing.Point(120, 83)
+            Me._selectedBasePriceLabel.Location = New System.Drawing.Point(110, 75)
             Me._selectedBasePriceLabel.Name = "_selectedBasePriceLabel"
             Me._selectedBasePriceLabel.Size = New System.Drawing.Size(134, 17)
             Me._selectedBasePriceLabel.TabIndex = 6
@@ -433,10 +433,10 @@ Namespace Features
             Me._builderBodyPanel.BackColor = System.Drawing.Color.FromArgb(255, 253, 249)
             Me._builderBodyPanel.Controls.Add(Me._builderFlow)
             Me._builderBodyPanel.Dock = System.Windows.Forms.DockStyle.Fill
-            Me._builderBodyPanel.Location = New System.Drawing.Point(0, 114)
+            Me._builderBodyPanel.Location = New System.Drawing.Point(0, 100)
             Me._builderBodyPanel.Name = "_builderBodyPanel"
             Me._builderBodyPanel.Padding = New System.Windows.Forms.Padding(20, 12, 20, 16)
-            Me._builderBodyPanel.Size = New System.Drawing.Size(584, 244)
+            Me._builderBodyPanel.Size = New System.Drawing.Size(584, 320)
             Me._builderBodyPanel.TabIndex = 1
             '
             '_builderFlow
@@ -587,19 +587,19 @@ Namespace Features
             Me._summaryPanel.Controls.Add(Me._feedbackBanner)
             Me._summaryPanel.Controls.Add(Me._actionRowPanel)
             Me._summaryPanel.Dock = System.Windows.Forms.DockStyle.Bottom
-            Me._summaryPanel.Location = New System.Drawing.Point(0, 378)
+            Me._summaryPanel.Location = New System.Drawing.Point(0, 420)
             Me._summaryPanel.Name = "_summaryPanel"
-            Me._summaryPanel.Size = New System.Drawing.Size(584, 208)
+            Me._summaryPanel.Size = New System.Drawing.Size(584, 166)
             Me._summaryPanel.TabIndex = 2
             '
             '_summaryTitleLabel
             '
             Me._summaryTitleLabel.AutoSize = True
-            Me._summaryTitleLabel.Font = New System.Drawing.Font("Segoe UI", 10.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
+            Me._summaryTitleLabel.Font = New System.Drawing.Font("Segoe UI", 10.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._summaryTitleLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._summaryTitleLabel.Location = New System.Drawing.Point(20, 12)
+            Me._summaryTitleLabel.Location = New System.Drawing.Point(20, 10)
             Me._summaryTitleLabel.Name = "_summaryTitleLabel"
-            Me._summaryTitleLabel.Size = New System.Drawing.Size(134, 19)
+            Me._summaryTitleLabel.Size = New System.Drawing.Size(128, 19)
             Me._summaryTitleLabel.TabIndex = 0
             Me._summaryTitleLabel.Text = "Ringkasan Pilihan"
             '
@@ -608,7 +608,7 @@ Namespace Features
             Me._summaryOptionsLabel.AutoEllipsis = True
             Me._summaryOptionsLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point)
             Me._summaryOptionsLabel.ForeColor = System.Drawing.Color.FromArgb(110, 86, 71)
-            Me._summaryOptionsLabel.Location = New System.Drawing.Point(20, 34)
+            Me._summaryOptionsLabel.Location = New System.Drawing.Point(20, 30)
             Me._summaryOptionsLabel.Name = "_summaryOptionsLabel"
             Me._summaryOptionsLabel.Size = New System.Drawing.Size(544, 30)
             Me._summaryOptionsLabel.TabIndex = 1
@@ -619,7 +619,7 @@ Namespace Features
             Me._basePriceCaptionLabel.AutoSize = True
             Me._basePriceCaptionLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point)
             Me._basePriceCaptionLabel.ForeColor = System.Drawing.Color.FromArgb(110, 86, 71)
-            Me._basePriceCaptionLabel.Location = New System.Drawing.Point(20, 68)
+            Me._basePriceCaptionLabel.Location = New System.Drawing.Point(20, 72)
             Me._basePriceCaptionLabel.Name = "_basePriceCaptionLabel"
             Me._basePriceCaptionLabel.Size = New System.Drawing.Size(69, 15)
             Me._basePriceCaptionLabel.TabIndex = 2
@@ -629,9 +629,9 @@ Namespace Features
             '
             Me._basePriceValueLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._basePriceValueLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._basePriceValueLabel.Location = New System.Drawing.Point(414, 68)
+            Me._basePriceValueLabel.Location = New System.Drawing.Point(150, 72)
             Me._basePriceValueLabel.Name = "_basePriceValueLabel"
-            Me._basePriceValueLabel.Size = New System.Drawing.Size(150, 16)
+            Me._basePriceValueLabel.Size = New System.Drawing.Size(110, 16)
             Me._basePriceValueLabel.TabIndex = 3
             Me._basePriceValueLabel.Text = "Rp 0"
             Me._basePriceValueLabel.TextAlign = System.Drawing.ContentAlignment.MiddleRight
@@ -641,7 +641,7 @@ Namespace Features
             Me._extraPriceCaptionLabel.AutoSize = True
             Me._extraPriceCaptionLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point)
             Me._extraPriceCaptionLabel.ForeColor = System.Drawing.Color.FromArgb(110, 86, 71)
-            Me._extraPriceCaptionLabel.Location = New System.Drawing.Point(20, 87)
+            Me._extraPriceCaptionLabel.Location = New System.Drawing.Point(20, 93)
             Me._extraPriceCaptionLabel.Name = "_extraPriceCaptionLabel"
             Me._extraPriceCaptionLabel.Size = New System.Drawing.Size(83, 15)
             Me._extraPriceCaptionLabel.TabIndex = 4
@@ -651,9 +651,9 @@ Namespace Features
             '
             Me._extraPriceValueLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._extraPriceValueLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._extraPriceValueLabel.Location = New System.Drawing.Point(414, 87)
+            Me._extraPriceValueLabel.Location = New System.Drawing.Point(150, 93)
             Me._extraPriceValueLabel.Name = "_extraPriceValueLabel"
-            Me._extraPriceValueLabel.Size = New System.Drawing.Size(150, 16)
+            Me._extraPriceValueLabel.Size = New System.Drawing.Size(110, 16)
             Me._extraPriceValueLabel.TabIndex = 5
             Me._extraPriceValueLabel.Text = "Rp 0"
             Me._extraPriceValueLabel.TextAlign = System.Drawing.ContentAlignment.MiddleRight
@@ -663,7 +663,7 @@ Namespace Features
             Me._unitTotalCaptionLabel.AutoSize = True
             Me._unitTotalCaptionLabel.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._unitTotalCaptionLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._unitTotalCaptionLabel.Location = New System.Drawing.Point(20, 106)
+            Me._unitTotalCaptionLabel.Location = New System.Drawing.Point(290, 72)
             Me._unitTotalCaptionLabel.Name = "_unitTotalCaptionLabel"
             Me._unitTotalCaptionLabel.Size = New System.Drawing.Size(78, 15)
             Me._unitTotalCaptionLabel.TabIndex = 6
@@ -673,9 +673,9 @@ Namespace Features
             '
             Me._unitTotalValueLabel.Font = New System.Drawing.Font("Segoe UI", 9.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._unitTotalValueLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._unitTotalValueLabel.Location = New System.Drawing.Point(414, 105)
+            Me._unitTotalValueLabel.Location = New System.Drawing.Point(434, 71)
             Me._unitTotalValueLabel.Name = "_unitTotalValueLabel"
-            Me._unitTotalValueLabel.Size = New System.Drawing.Size(150, 18)
+            Me._unitTotalValueLabel.Size = New System.Drawing.Size(130, 18)
             Me._unitTotalValueLabel.TabIndex = 7
             Me._unitTotalValueLabel.Text = "Rp 0"
             Me._unitTotalValueLabel.TextAlign = System.Drawing.ContentAlignment.MiddleRight
@@ -683,21 +683,21 @@ Namespace Features
             '_subtotalCaptionLabel
             '
             Me._subtotalCaptionLabel.AutoSize = True
-            Me._subtotalCaptionLabel.Font = New System.Drawing.Font("Segoe UI", 10.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
+            Me._subtotalCaptionLabel.Font = New System.Drawing.Font("Segoe UI", 9.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._subtotalCaptionLabel.ForeColor = System.Drawing.Color.FromArgb(59, 38, 28)
-            Me._subtotalCaptionLabel.Location = New System.Drawing.Point(20, 134)
+            Me._subtotalCaptionLabel.Location = New System.Drawing.Point(290, 92)
             Me._subtotalCaptionLabel.Name = "_subtotalCaptionLabel"
-            Me._subtotalCaptionLabel.Size = New System.Drawing.Size(89, 19)
+            Me._subtotalCaptionLabel.Size = New System.Drawing.Size(89, 17)
             Me._subtotalCaptionLabel.TabIndex = 8
             Me._subtotalCaptionLabel.Text = "Subtotal (1x)"
             '
             '_subtotalValueLabel
             '
-            Me._subtotalValueLabel.Font = New System.Drawing.Font("Segoe UI", 13.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
+            Me._subtotalValueLabel.Font = New System.Drawing.Font("Segoe UI", 12.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
             Me._subtotalValueLabel.ForeColor = System.Drawing.Color.FromArgb(107, 68, 46)
-            Me._subtotalValueLabel.Location = New System.Drawing.Point(364, 130)
+            Me._subtotalValueLabel.Location = New System.Drawing.Point(414, 88)
             Me._subtotalValueLabel.Name = "_subtotalValueLabel"
-            Me._subtotalValueLabel.Size = New System.Drawing.Size(200, 26)
+            Me._subtotalValueLabel.Size = New System.Drawing.Size(150, 24)
             Me._subtotalValueLabel.TabIndex = 9
             Me._subtotalValueLabel.Text = "Rp 0"
             Me._subtotalValueLabel.TextAlign = System.Drawing.ContentAlignment.MiddleRight
@@ -706,7 +706,7 @@ Namespace Features
             '
             Me._feedbackBanner.AutoEllipsis = True
             Me._feedbackBanner.Font = New System.Drawing.Font("Segoe UI", 8.5!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point)
-            Me._feedbackBanner.Location = New System.Drawing.Point(20, 160)
+            Me._feedbackBanner.Location = New System.Drawing.Point(20, 120)
             Me._feedbackBanner.Name = "_feedbackBanner"
             Me._feedbackBanner.Padding = New System.Windows.Forms.Padding(8, 3, 8, 3)
             Me._feedbackBanner.Size = New System.Drawing.Size(544, 24)
@@ -720,9 +720,9 @@ Namespace Features
             Me._actionRowPanel.Controls.Add(Me._handoffBtn)
             Me._actionRowPanel.Controls.Add(Me._resetOptionsBtn)
             Me._actionRowPanel.Controls.Add(Me._viewDraftsBtn)
-            Me._actionRowPanel.Location = New System.Drawing.Point(20, 162)
+            Me._actionRowPanel.Location = New System.Drawing.Point(20, 122)
             Me._actionRowPanel.Name = "_actionRowPanel"
-            Me._actionRowPanel.Size = New System.Drawing.Size(544, 36)
+            Me._actionRowPanel.Size = New System.Drawing.Size(544, 34)
             Me._actionRowPanel.TabIndex = 11
             '
             '_handoffBtn

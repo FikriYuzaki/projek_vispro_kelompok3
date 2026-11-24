@@ -60,40 +60,46 @@ Namespace Services
         End Function
     End Class
 
-    Public NotInheritable Class DrinkOptionService
-        Public Const MaxNotesLength As Integer = 200
-        Public Const MaxQuantity As Integer = 99
+    Public Interface IDrinkOptionDataSource
+        ReadOnly Property IsConfigured As Boolean
+        Function GetAllMenuItemsAsync() As Task(Of List(Of MenuItem))
+        Function GetMenuItemByIdAsync(menuItemId As String) As Task(Of MenuItem)
+        Function GetAvailableOptionsAsync(menuItemId As String) As Task(Of List(Of MenuOption))
+    End Interface
+
+    Friend NotInheritable Class SupabaseDrinkOptionDataSource
+        Implements IDrinkOptionDataSource
 
         Private ReadOnly _menuService As New MenuService()
 
-        Public Async Function GetAvailableMenuItemsAsync() As Task(Of DrinkMenuLoadResult)
-            Dim allItems = Await _menuService.GetMenuItemsAsync()
-            Dim available As New List(Of MenuItem)()
+        Public ReadOnly Property IsConfigured As Boolean Implements IDrinkOptionDataSource.IsConfigured
+            Get
+                Return SupabaseClientProvider.IsConfigured
+            End Get
+        End Property
 
-            For Each item In allItems
-                If item Is Nothing Then Continue For
-                If Not item.IsAvailable Then Continue For
-                If String.IsNullOrWhiteSpace(item.Id) OrElse String.IsNullOrWhiteSpace(item.Name) Then Continue For
-                If item.BasePrice < 0D Then Continue For
-                available.Add(item)
-            Next
-
-            Return New DrinkMenuLoadResult With {
-                .TotalMenuCount = allItems.Count,
-                .AvailableItems = available
-            }
+        Public Function GetAllMenuItemsAsync() As Task(Of List(Of MenuItem)) Implements IDrinkOptionDataSource.GetAllMenuItemsAsync
+            Return _menuService.GetMenuItemsAsync()
         End Function
 
-        Public Async Function GetOptionsForMenuItemAsync(menuItemId As String) As Task(Of List(Of MenuOption))
-            Dim cleanItemId = If(menuItemId, String.Empty).Trim()
-            If String.IsNullOrWhiteSpace(cleanItemId) Then
-                Return New List(Of MenuOption)()
+        Public Async Function GetMenuItemByIdAsync(menuItemId As String) As Task(Of MenuItem) Implements IDrinkOptionDataSource.GetMenuItemByIdAsync
+            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim response = Await client.From(Of MenuItem)().
+                Filter("id", Constants.Operator.Equals, menuItemId).
+                Get()
+
+            If response Is Nothing OrElse response.Models Is Nothing OrElse response.Models.Count = 0 Then
+                Return Nothing
             End If
 
+            Return response.Models(0)
+        End Function
+
+        Public Async Function GetAvailableOptionsAsync(menuItemId As String) As Task(Of List(Of MenuOption)) Implements IDrinkOptionDataSource.GetAvailableOptionsAsync
             Dim client = Await SupabaseClientProvider.GetClientAsync()
             ' Use column-name Filter instead of VB LINQ predicates, which emit VB CompareString nodes.
             Dim response = Await client.From(Of MenuOption)().
-                Filter("menu_item_id", Constants.Operator.Equals, cleanItemId).
+                Filter("menu_item_id", Constants.Operator.Equals, menuItemId).
                 Filter("is_available", Constants.Operator.Equals, "true").
                 Order("option_group", Constants.Ordering.Ascending).
                 Order("extra_price", Constants.Ordering.Ascending).
@@ -104,7 +110,61 @@ Namespace Services
                 Return New List(Of MenuOption)()
             End If
 
-            Return SanitizeAvailableOptions(response.Models, cleanItemId)
+            Return response.Models
+        End Function
+    End Class
+
+    Public NotInheritable Class DrinkOptionService
+        Public Const MaxNotesLength As Integer = 200
+        Public Const MaxQuantity As Integer = 99
+
+        Private ReadOnly _dataSource As IDrinkOptionDataSource
+
+        Public Sub New()
+            _dataSource = New SupabaseDrinkOptionDataSource()
+        End Sub
+
+        Public Sub New(dataSource As IDrinkOptionDataSource)
+            If dataSource Is Nothing Then
+                Throw New ArgumentNullException(NameOf(dataSource))
+            End If
+            _dataSource = dataSource
+        End Sub
+
+        Public ReadOnly Property IsDataSourceConfigured As Boolean
+            Get
+                Return _dataSource.IsConfigured
+            End Get
+        End Property
+
+        Public Async Function GetAvailableMenuItemsAsync() As Task(Of DrinkMenuLoadResult)
+            Dim allItems = Await _dataSource.GetAllMenuItemsAsync()
+            Dim available As New List(Of MenuItem)()
+
+            If allItems IsNot Nothing Then
+                For Each item In allItems
+                    If item Is Nothing Then Continue For
+                    If Not item.IsAvailable Then Continue For
+                    If String.IsNullOrWhiteSpace(item.Id) OrElse String.IsNullOrWhiteSpace(item.Name) Then Continue For
+                    If item.BasePrice < 0D Then Continue For
+                    available.Add(item)
+                Next
+            End If
+
+            Return New DrinkMenuLoadResult With {
+                .TotalMenuCount = If(allItems IsNot Nothing, allItems.Count, 0),
+                .AvailableItems = available
+            }
+        End Function
+
+        Public Async Function GetOptionsForMenuItemAsync(menuItemId As String) As Task(Of List(Of MenuOption))
+            Dim cleanItemId = If(menuItemId, String.Empty).Trim()
+            If String.IsNullOrWhiteSpace(cleanItemId) Then
+                Return New List(Of MenuOption)()
+            End If
+
+            Dim rawModels = Await _dataSource.GetAvailableOptionsAsync(cleanItemId)
+            Return SanitizeAvailableOptions(rawModels, cleanItemId)
         End Function
 
         Public Async Function ValidateAndBuildDraftAsync(
@@ -126,7 +186,7 @@ Namespace Services
                 Return DrinkDraftValidationResult.Fail($"Kuantitas maksimal {MaxQuantity} unit per item draft.")
             End If
 
-            Dim freshItem = Await GetMenuItemByIdAsync(cleanItemId)
+            Dim freshItem = Await _dataSource.GetMenuItemByIdAsync(cleanItemId)
             If freshItem Is Nothing Then
                 Return DrinkDraftValidationResult.Fail(
                     "Item menu ini tidak lagi ditemukan di database. Daftar menu perlu dimuat ulang.",
@@ -149,19 +209,6 @@ Namespace Services
             Return ValidateSelection(freshItem, freshOptions, selectedOptionIds, quantity, notes)
         End Function
 
-        Private Async Function GetMenuItemByIdAsync(menuItemId As String) As Task(Of MenuItem)
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
-            Dim response = Await client.From(Of MenuItem)().
-                Filter("id", Constants.Operator.Equals, menuItemId).
-                Get()
-
-            If response Is Nothing OrElse response.Models Is Nothing OrElse response.Models.Count = 0 Then
-                Return Nothing
-            End If
-
-            Return response.Models(0)
-        End Function
-
         Public Shared Function SanitizeAvailableOptions(
             options As IEnumerable(Of MenuOption),
             expectedMenuItemId As String
@@ -172,11 +219,14 @@ Namespace Services
             End If
 
             Dim cleanExpectedId = If(expectedMenuItemId, String.Empty).Trim()
+            Dim seenIds As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
             For Each opt In options
                 If opt Is Nothing Then Continue For
                 If Not opt.IsAvailable Then Continue For
                 If String.IsNullOrWhiteSpace(opt.Id) Then Continue For
                 If String.IsNullOrWhiteSpace(opt.OptionName) Then Continue For
+                Dim cleanOptId = opt.Id.Trim()
+                If Not seenIds.Add(cleanOptId) Then Continue For
                 If Not String.IsNullOrEmpty(cleanExpectedId) AndAlso
                    Not String.Equals(If(opt.MenuItemId, String.Empty).Trim(), cleanExpectedId, StringComparison.OrdinalIgnoreCase) Then
                     Continue For
@@ -184,6 +234,7 @@ Namespace Services
                 If Not MenuOption.IsValidOptionGroup(opt.OptionGroup) Then Continue For
                 If opt.ExtraPrice < 0D Then Continue For
 
+                opt.Id = cleanOptId
                 opt.OptionGroup = MenuOption.NormalizeGroupKey(opt.OptionGroup)
                 opt.OptionName = opt.OptionName.Trim()
                 result.Add(opt)

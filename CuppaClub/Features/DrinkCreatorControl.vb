@@ -41,8 +41,9 @@ Namespace Features
         }
         Private Shared ReadOnly ImageBytesCache As New ConcurrentDictionary(Of String, Byte())(StringComparer.OrdinalIgnoreCase)
 
-        Private ReadOnly _drinkOptionService As New DrinkOptionService()
+        Private ReadOnly _drinkOptionService As DrinkOptionService
         Private ReadOnly _categoryButtons As New Dictionary(Of String, Button)(StringComparer.OrdinalIgnoreCase)
+        Private ReadOnly _toolTip As New ToolTip()
 
         Private _totalMenuCount As Integer
         Private _availableItems As New List(Of Models.MenuItem)()
@@ -100,16 +101,23 @@ Namespace Features
         End Property
 
         Public Sub New()
+            Me.New(Nothing)
+        End Sub
+
+        Public Sub New(drinkOptionService As DrinkOptionService)
             InitializeComponent()
 
             If LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then
                 Return
             End If
 
+            _drinkOptionService = If(drinkOptionService, New DrinkOptionService())
             _runtimeInitialized = True
             WireRuntimeBehavior()
 
             AddHandler SupabaseClientProvider.ConfigurationChanged, AddressOf OnConfigurationChanged
+            AddHandler AppSession.SessionChanged, AddressOf OnSessionChanged
+            AddHandler DrinkDraftHandoff.PendingDraftsChanged, AddressOf OnPendingDraftsChanged
             AddHandler Me.Load, AddressOf OnControlLoad
         End Sub
 
@@ -148,10 +156,15 @@ Namespace Features
             AddHandler _summaryPanel.Paint, Sub(s, e)
                                                 Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
                                                     e.Graphics.DrawLine(pen, 1, 0, _summaryPanel.Width, 0)
-                                                    e.Graphics.DrawLine(pen, 20, 126, _summaryPanel.Width - 20, 126)
+                                                    e.Graphics.DrawLine(pen, 20, 65, _summaryPanel.Width - 20, 65)
+                                                    Dim splitX = CalculateSummarySplitX(_summaryPanel.ClientSize.Width)
+                                                    e.Graphics.DrawLine(pen, splitX, 71, splitX, 113)
                                                 End Using
                                             End Sub
-            AddHandler _summaryPanel.Resize, Sub() LayoutSummaryPanel()
+            AddHandler _summaryPanel.Resize, Sub()
+                                                 LayoutSummaryPanel()
+                                                 _summaryPanel.Invalidate()
+                                             End Sub
             AddHandler _builderBodyPanel.Resize, Sub() LayoutBuilderBody()
             AddHandler _drinkCardsPanel.Resize, Sub() ResizeDrinkCards()
             AddHandler _orderMetaCard.Paint, Sub(s, e)
@@ -160,6 +173,14 @@ Namespace Features
                                                  End Using
                                              End Sub
             AddHandler _selectedPhotoBox.Paint, AddressOf OnSelectedPhotoPaint
+
+            _qtyMinusBtn.AccessibleName = "Kurangi kuantitas"
+            _qtyPlusBtn.AccessibleName = "Tambah kuantitas"
+            _quantityInput.AccessibleName = "Jumlah kuantitas"
+            _searchTextBox.AccessibleName = "Cari minuman"
+            _notesTextBox.AccessibleName = "Catatan pesanan"
+            _toolTip.SetToolTip(_qtyMinusBtn, "Kurangi kuantitas")
+            _toolTip.SetToolTip(_qtyPlusBtn, "Tambah kuantitas")
 
             _clearSearchBtn.Width = AppTheme.MeasureButtonWidth(_clearSearchBtn.Text, AppTheme.FontBodyBold, 94, 24)
             _reloadBtn.Width = AppTheme.MeasureButtonWidth(_reloadBtn.Text, AppTheme.FontBodyBold, 112, 24)
@@ -175,6 +196,21 @@ Namespace Features
             AppTheme.StyleSecondaryButton(_resetOptionsBtn)
             AppTheme.StyleSecondaryButton(_viewDraftsBtn)
 
+            AttachButtonFocusIndicator(_clearSearchBtn)
+            AttachButtonFocusIndicator(_reloadBtn)
+            AttachButtonFocusIndicator(_qtyMinusBtn)
+            AttachButtonFocusIndicator(_qtyPlusBtn)
+            AttachButtonFocusIndicator(_handoffBtn)
+            AttachButtonFocusIndicator(_resetOptionsBtn)
+            AttachButtonFocusIndicator(_viewDraftsBtn)
+            AttachButtonEnabledStyle(_handoffBtn, isPrimary:=True)
+            AttachButtonEnabledStyle(_resetOptionsBtn, isPrimary:=False)
+            AttachButtonEnabledStyle(_viewDraftsBtn, isPrimary:=False)
+            AttachButtonEnabledStyle(_clearSearchBtn, isPrimary:=False)
+            AttachButtonEnabledStyle(_reloadBtn, isPrimary:=False)
+            AttachButtonEnabledStyle(_qtyMinusBtn, isPrimary:=False)
+            AttachButtonEnabledStyle(_qtyPlusBtn, isPrimary:=False)
+
             AddHandler _searchTextBox.TextChanged, AddressOf OnSearchTextChanged
             AddHandler _clearSearchBtn.Click, Sub()
                                                   _searchTextBox.Clear()
@@ -185,6 +221,10 @@ Namespace Features
             AddHandler _qtyPlusBtn.Click, AddressOf OnQuantityPlusClick
             AddHandler _quantityInput.ValueChanged, AddressOf OnQuantityChanged
             AddHandler _quantityInput.TextChanged, AddressOf OnQuantityChanged
+            Dim qtyEditBox = _quantityInput.Controls.OfType(Of TextBox)().FirstOrDefault()
+            If qtyEditBox IsNot Nothing Then
+                AddHandler qtyEditBox.TextChanged, AddressOf OnQuantityChanged
+            End If
             AddHandler _notesTextBox.TextChanged, Sub() RefreshLiveSummary()
             AddHandler _handoffBtn.Click, AddressOf OnPrepareDraftClick
             AddHandler _resetOptionsBtn.Click, AddressOf OnResetSelectionClick
@@ -199,6 +239,7 @@ Namespace Features
             For Each kvp In _categoryButtons
                 Dim captured = kvp.Key
                 kvp.Value.Width = AppTheme.MeasureButtonWidth(kvp.Value.Text, AppTheme.FontBodyBold, 70, 22)
+                AttachButtonFocusIndicator(kvp.Value)
                 AddHandler kvp.Value.Click, Sub()
                                                 _selectedCategory = captured
                                                 UpdateCategoryButtonStyles()
@@ -216,6 +257,47 @@ Namespace Features
             GetType(Control).GetProperty("DoubleBuffered", BindingFlags.Instance Or BindingFlags.NonPublic)?.SetValue(target, True, Nothing)
         End Sub
 
+        Private Shared Sub AttachButtonFocusIndicator(button As Button)
+            AddHandler button.Paint, Sub(s, e)
+                                         Dim btn = DirectCast(s, Button)
+                                         If btn.Focused AndAlso btn.Enabled Then
+                                             Dim ringColor = If(btn.BackColor = AppTheme.PrimaryMocha OrElse btn.BackColor = AppTheme.AccentStrawberryDark,
+                                                                AppTheme.SurfaceMilk,
+                                                                AppTheme.FocusMocha)
+                                             Using pen As New Pen(ringColor, 2.0F)
+                                                 e.Graphics.DrawRectangle(pen, 2, 2, btn.Width - 5, btn.Height - 5)
+                                             End Using
+                                         End If
+                                     End Sub
+            AddHandler button.GotFocus, Sub(s, e) DirectCast(s, Control).Invalidate()
+            AddHandler button.LostFocus, Sub(s, e) DirectCast(s, Control).Invalidate()
+        End Sub
+
+        Private Shared Sub AttachButtonEnabledStyle(button As Button, isPrimary As Boolean)
+            Dim applyState As Action =
+                Sub()
+                    If button.Enabled Then
+                        If isPrimary Then
+                            AppTheme.StylePrimaryButton(button)
+                        Else
+                            AppTheme.StyleSecondaryButton(button)
+                        End If
+                    Else
+                        button.Cursor = Cursors.Default
+                        button.BackColor = AppTheme.TaupeTint
+                        button.ForeColor = AppTheme.TaupeText
+                        button.FlatAppearance.BorderColor = AppTheme.DividerAlmond
+                    End If
+                End Sub
+            AddHandler button.EnabledChanged, Sub() applyState()
+            applyState()
+        End Sub
+
+        Private Shared Function CalculateSummarySplitX(panelWidth As Integer) As Integer
+            Dim contentWidth = Math.Max(260, panelWidth - 40)
+            Return 20 + CInt(Math.Round(contentWidth * 0.45))
+        End Function
+
         Private Sub LayoutToolbar()
             Dim w = _toolbarPanel.ClientSize.Width
             If w <= 0 Then Return
@@ -231,7 +313,7 @@ Namespace Features
             Dim xPos = leftColumnX
             For Each catName In _categoryButtons.Keys
                 Dim btn = _categoryButtons(catName)
-                btn.Location = New Point(xPos, 53)
+                btn.Location = New Point(xPos, 52)
                 xPos += btn.Width + 6
             Next
 
@@ -239,7 +321,7 @@ Namespace Features
             Dim countLeft = w - countWidth - 20
             _availableCountLabel.Visible = (countLeft >= xPos + 12) AndAlso _availableItems.Count > 0 AndAlso Not _stateOverlay.Visible
             If _availableCountLabel.Visible Then
-                _availableCountLabel.Location = New Point(countLeft, 60)
+                _availableCountLabel.Location = New Point(countLeft, 59)
             End If
         End Sub
 
@@ -249,11 +331,11 @@ Namespace Features
 
             Dim desiredLeftWidth As Integer
             If totalWidth < 800 Then
-                desiredLeftWidth = 296
+                desiredLeftWidth = 286
             ElseIf totalWidth < 900 Then
-                desiredLeftWidth = 328
+                desiredLeftWidth = 324
             Else
-                desiredLeftWidth = 356
+                desiredLeftWidth = 352
             End If
 
             If _menuListPane.Width <> desiredLeftWidth Then
@@ -268,14 +350,14 @@ Namespace Features
         End Sub
 
         Private Sub LayoutSelectedHeader()
-            Dim contentWidth = Math.Max(180, _selectedHeaderPanel.ClientSize.Width - 140)
+            Dim contentWidth = Math.Max(180, _selectedHeaderPanel.ClientSize.Width - 130)
             _selectedTitleLabel.Width = contentWidth
             _selectedDescriptionLabel.Width = contentWidth
 
             Dim categoryRight = _selectedCategoryLabel.Left + _selectedCategoryLabel.PreferredWidth
-            _selectedAvailabilityTag.Location = New Point(categoryRight + 8, 13)
+            _selectedAvailabilityTag.Location = New Point(categoryRight + 8, 10)
             Dim availRight = _selectedAvailabilityTag.Left + _selectedAvailabilityTag.PreferredWidth
-            _selectedCustomTag.Location = New Point(availRight + 6, 13)
+            _selectedCustomTag.Location = New Point(availRight + 6, 10)
         End Sub
 
         Private Sub LayoutBuilderBody()
@@ -288,6 +370,12 @@ Namespace Features
             _orderMetaCard.Width = targetWidth
             _notesTextBox.Width = Math.Max(220, targetWidth - 28)
 
+            Dim hintFits = (_qtyPlusBtn.Right + 12 + _quantityHintLabel.PreferredWidth) <= (targetWidth - 14)
+            _quantityHintLabel.Visible = hintFits
+            If hintFits Then
+                _quantityHintLabel.Location = New Point(_qtyPlusBtn.Right + 12, 19)
+            End If
+
             For Each ctrl As Control In _optionsHostPanel.Controls
                 ctrl.Width = targetWidth
                 SyncOptionGroupCardLayout(ctrl, targetWidth)
@@ -296,17 +384,43 @@ Namespace Features
 
         Private Sub SyncOptionGroupCardLayout(card As Control, cardWidth As Integer)
             Dim innerWidth = Math.Max(220, cardWidth - 28)
-            Dim maxBottom = 0
 
+            If String.Equals(CStr(card.Tag), "status-card", StringComparison.Ordinal) Then
+                Dim y = 14
+                For Each child As Control In card.Controls
+                    If TypeOf child Is Label AndAlso String.Equals(CStr(child.Tag), "wrap-label", StringComparison.Ordinal) Then
+                        child.MaximumSize = New Size(innerWidth, 0)
+                        Dim pref = child.GetPreferredSize(New Size(innerWidth, 0))
+                        child.Location = New Point(14, y)
+                        child.Size = New Size(Math.Min(innerWidth, pref.Width), Math.Max(20, pref.Height))
+                        y = child.Bottom + 12
+                    ElseIf TypeOf child Is ProgressBar Then
+                        child.Location = New Point(14, y)
+                        child.Width = innerWidth
+                        y = child.Bottom + 12
+                    ElseIf TypeOf child Is Button Then
+                        child.Location = New Point(14, y)
+                        y = child.Bottom + 12
+                    Else
+                        child.Location = New Point(14, y)
+                        y = child.Bottom + 10
+                    End If
+                Next
+                card.Height = Math.Max(76, y + 4)
+                Return
+            End If
+
+            Dim maxBottom = 0
             For Each child As Control In card.Controls
                 If TypeOf child Is FlowLayoutPanel Then
                     child.Width = innerWidth
                     Dim pref = child.GetPreferredSize(New Size(innerWidth, 0))
                     child.Height = Math.Max(56, pref.Height)
-                ElseIf TypeOf child Is Label AndAlso String.Equals(CStr(child.Tag), "wrap-label", StringComparison.Ordinal) Then
-                    child.MaximumSize = New Size(innerWidth, 0)
-                    Dim pref = child.GetPreferredSize(New Size(innerWidth, 0))
-                    child.Height = Math.Max(20, pref.Height)
+                ElseIf TypeOf child Is Panel AndAlso String.Equals(CStr(child.Tag), "radio-group-panel", StringComparison.Ordinal) Then
+                    child.Width = innerWidth
+                    For Each rowCtrl As Control In child.Controls
+                        rowCtrl.Width = innerWidth
+                    Next
                 ElseIf TypeOf child Is Panel AndAlso String.Equals(CStr(child.Tag), "option-row", StringComparison.Ordinal) Then
                     child.Width = innerWidth
                 ElseIf TypeOf child Is Button AndAlso String.Equals(CStr(child.Tag), "clear-group-btn", StringComparison.Ordinal) Then
@@ -332,14 +446,30 @@ Namespace Features
             _feedbackBanner.Width = contentWidth
             _actionRowPanel.Width = contentWidth
 
+            Dim splitX = CalculateSummarySplitX(w)
+            Dim leftRightEdge = splitX - 12
+            Dim rightColX = splitX + 12
             Dim rightEdge = w - 20
-            _basePriceValueLabel.Location = New Point(rightEdge - _basePriceValueLabel.Width, _basePriceValueLabel.Top)
-            _extraPriceValueLabel.Location = New Point(rightEdge - _extraPriceValueLabel.Width, _extraPriceValueLabel.Top)
-            _unitTotalValueLabel.Location = New Point(rightEdge - _unitTotalValueLabel.Width, _unitTotalValueLabel.Top)
-            _subtotalValueLabel.Location = New Point(rightEdge - _subtotalValueLabel.Width, _subtotalValueLabel.Top)
 
-            Dim targetHeight = If(_feedbackBanner.Visible, 236, 208)
-            Dim targetActionTop = If(_feedbackBanner.Visible, 190, 162)
+            Dim leftValWidth = Math.Max(76, leftRightEdge - (_extraPriceCaptionLabel.Left + _extraPriceCaptionLabel.PreferredWidth + 6))
+            _basePriceValueLabel.Size = New Size(leftValWidth, 16)
+            _basePriceValueLabel.Location = New Point(leftRightEdge - leftValWidth, 72)
+            _extraPriceValueLabel.Size = New Size(leftValWidth, 16)
+            _extraPriceValueLabel.Location = New Point(leftRightEdge - leftValWidth, 93)
+
+            _unitTotalCaptionLabel.Location = New Point(rightColX, 72)
+            _subtotalCaptionLabel.Location = New Point(rightColX, 92)
+
+            Dim unitValWidth = Math.Max(82, rightEdge - (_unitTotalCaptionLabel.Right + 6))
+            _unitTotalValueLabel.Size = New Size(unitValWidth, 18)
+            _unitTotalValueLabel.Location = New Point(rightEdge - unitValWidth, 71)
+
+            Dim subValWidth = Math.Max(92, rightEdge - (_subtotalCaptionLabel.Right + 6))
+            _subtotalValueLabel.Size = New Size(subValWidth, 24)
+            _subtotalValueLabel.Location = New Point(rightEdge - subValWidth, 88)
+
+            Dim targetHeight = If(_feedbackBanner.Visible, 194, 166)
+            Dim targetActionTop = If(_feedbackBanner.Visible, 150, 122)
             _actionRowPanel.Location = New Point(20, targetActionTop)
             If _summaryPanel.Height <> targetHeight Then
                 _summaryPanel.Height = targetHeight
@@ -364,16 +494,14 @@ Namespace Features
                 Dim compactHandoffText = If(_isSubmittingDraft, "Validasi...", "Siapkan Draft")
                 Dim compactResetText = "Reset"
                 Dim compactViewText = $"Draft ({DrinkDraftHandoff.PendingCount})"
-                Dim compactResetW = AppTheme.MeasureButtonWidth(compactResetText, AppTheme.FontBodyBold, 74, 20)
-                Dim compactViewW = AppTheme.MeasureButtonWidth(compactViewText, AppTheme.FontBodyBold, 92, 20)
-                Dim compactHandoffW = Math.Max(
-                    AppTheme.MeasureButtonWidth(compactHandoffText, AppTheme.FontBodyBold, 130, 20),
-                    contentWidth - compactResetW - compactViewW - 16)
+                Dim compactResetW = AppTheme.MeasureButtonWidth(compactResetText, AppTheme.FontBodyBold, 68, 18)
+                Dim compactViewW = AppTheme.MeasureButtonWidth(compactViewText, AppTheme.FontBodyBold, 84, 18)
+                Dim availableForHandoff = Math.Max(110, contentWidth - compactResetW - compactViewW - 16)
 
                 _handoffBtn.Text = compactHandoffText
                 _resetOptionsBtn.Text = compactResetText
                 _viewDraftsBtn.Text = compactViewText
-                _handoffBtn.Width = Math.Min(compactHandoffW, Math.Max(120, contentWidth - compactResetW - compactViewW - 16))
+                _handoffBtn.Width = availableForHandoff
                 _resetOptionsBtn.Width = compactResetW
                 _viewDraftsBtn.Width = compactViewW
             End If
@@ -384,11 +512,21 @@ Namespace Features
         End Sub
 
         Private Sub ResizeDrinkCards()
-            Dim reservedScroll = If(_drinkCardsPanel.VerticalScroll.Visible, 6, SystemInformation.VerticalScrollBarWidth + 6)
-            Dim cardWidth = Math.Max(220, _drinkCardsPanel.ClientSize.Width - _drinkCardsPanel.Padding.Horizontal - reservedScroll)
-            For Each ctrl As Control In _drinkCardsPanel.Controls
-                ctrl.Width = cardWidth
-            Next
+            Dim reservedScroll = If(_drinkCardsPanel.VerticalScroll.Visible, 4, SystemInformation.VerticalScrollBarWidth + 4)
+            Dim cardWidth = Math.Max(200, _drinkCardsPanel.ClientSize.Width - _drinkCardsPanel.Padding.Horizontal - reservedScroll - 4)
+            _drinkCardsPanel.SuspendLayout()
+            Try
+                For Each ctrl As Control In _drinkCardsPanel.Controls
+                    ctrl.Width = cardWidth
+                Next
+            Finally
+                _drinkCardsPanel.ResumeLayout(True)
+            End Try
+            _drinkCardsPanel.AutoScroll = False
+            _drinkCardsPanel.HorizontalScroll.Enabled = False
+            _drinkCardsPanel.HorizontalScroll.Visible = False
+            _drinkCardsPanel.HorizontalScroll.Maximum = 0
+            _drinkCardsPanel.AutoScroll = True
         End Sub
 
         Private Sub BuildStateOverlay()
@@ -436,6 +574,7 @@ Namespace Features
 
             _stateActionBtn.Size = New Size(204, 36)
             AppTheme.StylePrimaryButton(_stateActionBtn)
+            AttachButtonFocusIndicator(_stateActionBtn)
             AddHandler _stateActionBtn.Click, AddressOf OnStateActionClick
 
             stateFlow.Controls.AddRange({
@@ -453,11 +592,19 @@ Namespace Features
             _stateOverlay.BringToFront()
         End Sub
 
+        Private Shared Sub DisposeChildControls(container As Control)
+            Dim existing = container.Controls.Cast(Of Control)().ToArray()
+            container.Controls.Clear()
+            For Each ctrl In existing
+                ctrl.Dispose()
+            Next
+        End Sub
+
         Public Async Sub LoadAvailableMenuAsync(Optional preserveFeedback As Boolean = False)
             _menuLoadVersion += 1
             Dim activeVersion = _menuLoadVersion
 
-            If Not SupabaseClientProvider.IsConfigured Then
+            If Not _drinkOptionService.IsDataSourceConfigured Then
                 _totalMenuCount = 0
                 _availableItems = New List(Of Models.MenuItem)()
                 _filteredItems = New List(Of Models.MenuItem)()
@@ -481,7 +628,7 @@ Namespace Features
                 _totalMenuCount = result.TotalMenuCount
                 _availableItems = result.AvailableItems
                 _reloadBtn.Enabled = True
-                ApplyFiltersAndRender(preserveFeedback)
+                ApplyFiltersAndRender(preserveFeedback, forceReloadOptions:=True)
             Catch ex As SupabaseNotConfiguredException
                 If IsDisposed OrElse Not IsHandleCreated OrElse activeVersion <> _menuLoadVersion Then
                     Return
@@ -497,8 +644,11 @@ Namespace Features
             End Try
         End Sub
 
-        Private Sub ApplyFiltersAndRender(Optional preserveFeedback As Boolean = False)
-            If Not SupabaseClientProvider.IsConfigured Then
+        Private Sub ApplyFiltersAndRender(
+            Optional preserveFeedback As Boolean = False,
+            Optional forceReloadOptions As Boolean = False
+        )
+            If Not _drinkOptionService.IsDataSourceConfigured Then
                 ShowStateOverlay(CreatorViewState.Unconfigured, String.Empty)
                 Return
             End If
@@ -535,18 +685,23 @@ Namespace Features
             _availableCountLabel.Text = $"Menampilkan {_filteredItems.Count} dari {_availableItems.Count} item tersedia"
             LayoutToolbar()
 
-            RenderDrinkSelectorCards(preserveFeedback)
+            RenderDrinkSelectorCards(preserveFeedback, forceReloadOptions)
         End Sub
 
-        Private Sub RenderDrinkSelectorCards(Optional preserveFeedback As Boolean = False)
+        Private Sub RenderDrinkSelectorCards(
+            Optional preserveFeedback As Boolean = False,
+            Optional forceReloadOptions As Boolean = False
+        )
             Dim nextSelection = _filteredItems.FirstOrDefault(Function(x) String.Equals(x.Id, _selectedItemId, StringComparison.OrdinalIgnoreCase))
             If nextSelection Is Nothing AndAlso _filteredItems.Count > 0 Then
                 nextSelection = _filteredItems(0)
             End If
 
             Dim selectionChanged = nextSelection IsNot Nothing AndAlso
-                                   (_selectedItem Is Nothing OrElse
+                                   (forceReloadOptions OrElse
+                                    _selectedItem Is Nothing OrElse
                                     Not String.Equals(_selectedItem.Id, nextSelection.Id, StringComparison.OrdinalIgnoreCase) OrElse
+                                    _selectedItem.SupportsCustomization <> nextSelection.SupportsCustomization OrElse
                                     _optionsState = OptionsViewState.Idle OrElse
                                     preserveFeedback)
 
@@ -554,13 +709,10 @@ Namespace Features
 
             _drinkCardsPanel.SuspendLayout()
             Try
-                For Each ctrl As Control In _drinkCardsPanel.Controls
-                    ctrl.Dispose()
-                Next
-                _drinkCardsPanel.Controls.Clear()
+                DisposeChildControls(_drinkCardsPanel)
 
-                Dim reservedScroll = If(_drinkCardsPanel.VerticalScroll.Visible, 6, SystemInformation.VerticalScrollBarWidth + 6)
-                Dim cardWidth = Math.Max(220, _drinkCardsPanel.ClientSize.Width - _drinkCardsPanel.Padding.Horizontal - reservedScroll)
+                Dim reservedScroll = If(_drinkCardsPanel.VerticalScroll.Visible, 4, SystemInformation.VerticalScrollBarWidth + 4)
+                Dim cardWidth = Math.Max(200, _drinkCardsPanel.ClientSize.Width - _drinkCardsPanel.Padding.Horizontal - reservedScroll - 4)
                 Dim tabIdx = 10
                 For Each item In _filteredItems
                     Dim card As New DrinkSelectorCard(item) With {
@@ -714,10 +866,12 @@ Namespace Features
             End If
 
             _selectedTitleLabel.Text = item.Name
-            _selectedDescriptionLabel.Text = If(
+            Dim descText = If(
                 String.IsNullOrWhiteSpace(item.Description),
                 "Belum ada deskripsi untuk item ini.",
                 item.Description.Trim())
+            _selectedDescriptionLabel.Text = descText
+            _toolTip.SetToolTip(_selectedDescriptionLabel, descText)
             _selectedBasePriceLabel.Text = "Harga dasar: " & AppTheme.FormatRupiah(item.BasePrice)
 
             LayoutSelectedHeader()
@@ -730,10 +884,7 @@ Namespace Features
 
             _optionsHostPanel.SuspendLayout()
             Try
-                For Each ctrl As Control In _optionsHostPanel.Controls
-                    ctrl.Dispose()
-                Next
-                _optionsHostPanel.Controls.Clear()
+                DisposeChildControls(_optionsHostPanel)
 
                 Select Case _optionsState
                     Case OptionsViewState.Loading
@@ -831,7 +982,8 @@ Namespace Features
                 .Width = width,
                 .BackColor = AppTheme.CanvasCream,
                 .Padding = New Padding(14),
-                .Margin = New Padding(0, 0, 0, 10)
+                .Margin = New Padding(0, 0, 0, 10),
+                .Tag = "status-card"
             }
             AddHandler card.Paint, Sub(s, e)
                                        Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
@@ -885,6 +1037,7 @@ Namespace Features
                     .Size = New Size(AppTheme.MeasureButtonWidth(actionText, AppTheme.FontBodyBold, 140, 24), 32)
                 }
                 AppTheme.StyleSecondaryButton(actionBtn)
+                AttachButtonFocusIndicator(actionBtn)
                 AddHandler actionBtn.Click, Sub() onAction()
                 card.Controls.Add(actionBtn)
                 y += actionBtn.Height + 12
@@ -926,6 +1079,7 @@ Namespace Features
             card.Controls.Add(hintLabel)
 
             Dim yCursor = 40
+            Dim clearGroupAction As Action = Nothing
 
             If String.Equals(bucket.GroupKey, "size", StringComparison.OrdinalIgnoreCase) Then
                 Dim innerWidth = Math.Max(220, cardWidth - 28)
@@ -944,6 +1098,10 @@ Namespace Features
                     Dim capturedOpt = opt
                     Dim isSelected = _selectedOptionIds.Contains(opt.Id)
                     Dim priceLine = If(opt.ExtraPrice > 0D, "+" & AppTheme.FormatRupiah(opt.ExtraPrice), "Harga dasar")
+                    Dim nameWidth = AppTheme.MeasureButtonWidth(opt.OptionName, AppTheme.FontBodyBold, 104, 24)
+                    Dim priceWidth = AppTheme.MeasureButtonWidth(priceLine, AppTheme.FontBodyBold, 104, 24)
+                    Dim btnWidth = Math.Max(nameWidth, priceWidth)
+
                     Dim rb As New RadioButton With {
                         .Appearance = Appearance.Button,
                         .AutoCheck = True,
@@ -952,12 +1110,23 @@ Namespace Features
                         .FlatStyle = FlatStyle.Flat,
                         .Font = AppTheme.FontBodyBold,
                         .Text = $"{opt.OptionName}{Environment.NewLine}{priceLine}",
+                        .AccessibleName = $"{bucket.DisplayName} {opt.OptionName}, {priceLine}",
                         .TextAlign = ContentAlignment.MiddleCenter,
-                        .Size = New Size(Math.Max(116, AppTheme.MeasureButtonWidth(opt.OptionName & "  " & priceLine, AppTheme.FontBodyBold, 116, 18)), 52),
+                        .Size = New Size(btnWidth, 52),
                         .Margin = New Padding(0, 0, 8, 8),
                         .Tag = opt.Id
                     }
                     StyleSizeRadioButton(rb)
+                    AddHandler rb.Paint, Sub(s, e)
+                                             Dim target = DirectCast(s, RadioButton)
+                                             If target.Focused Then
+                                                 Using pen As New Pen(AppTheme.FocusMocha, 2.0F)
+                                                     e.Graphics.DrawRectangle(pen, 3, 3, target.Width - 7, target.Height - 7)
+                                                 End Using
+                                             End If
+                                         End Sub
+                    AddHandler rb.GotFocus, Sub(s, e) DirectCast(s, Control).Invalidate()
+                    AddHandler rb.LostFocus, Sub(s, e) DirectCast(s, Control).Invalidate()
                     sizeButtons.Add(rb)
 
                     AddHandler rb.CheckedChanged, Sub(sender, e)
@@ -972,6 +1141,19 @@ Namespace Features
                                                   End Sub
                     sizeFlow.Controls.Add(rb)
                 Next
+
+                clearGroupAction = Sub()
+                                       _isUpdatingSelectionControls = True
+                                       Try
+                                           For Each sibling In sizeButtons
+                                               sibling.Checked = False
+                                               StyleSizeRadioButton(sibling)
+                                           Next
+                                       Finally
+                                           _isUpdatingSelectionControls = False
+                                       End Try
+                                       ClearSingleSelectGroupState(bucket)
+                                   End Sub
 
                 Dim flowPref = sizeFlow.GetPreferredSize(New Size(innerWidth, 0))
                 sizeFlow.Height = Math.Max(60, flowPref.Height)
@@ -1002,7 +1184,7 @@ Namespace Features
                     .Location = New Point(14, yCursor),
                     .Width = rowWidth,
                     .BackColor = Color.Transparent,
-                    .Tag = "option-row"
+                    .Tag = "radio-group-panel"
                 }
 
                 Dim innerY = 0
@@ -1018,15 +1200,35 @@ Namespace Features
                     innerY = radioRow.Bottom + 6
                 Next
 
+                clearGroupAction = Sub()
+                                       _isUpdatingSelectionControls = True
+                                       Try
+                                           For Each siblingRow As Control In radioGroupPanel.Controls
+                                               For Each inner As Control In siblingRow.Controls
+                                                   Dim siblingRb = TryCast(inner, RadioButton)
+                                                   If siblingRb IsNot Nothing Then
+                                                       siblingRb.Checked = False
+                                                   End If
+                                               Next
+                                               siblingRow.BackColor = AppTheme.SurfaceMilk
+                                               siblingRow.Invalidate()
+                                           Next
+                                       Finally
+                                           _isUpdatingSelectionControls = False
+                                       End Try
+                                       ClearSingleSelectGroupState(bucket)
+                                   End Sub
+
                 radioGroupPanel.Height = Math.Max(34, innerY)
                 card.Controls.Add(radioGroupPanel)
                 yCursor = radioGroupPanel.Bottom + 6
             End If
 
-            If Not bucket.AllowMultiple Then
+            If Not bucket.AllowMultiple AndAlso clearGroupAction IsNot Nothing Then
                 Dim clearBtnWidth = AppTheme.MeasureButtonWidth("Kosongkan", AppTheme.FontCaptionBold, 78, 16)
                 Dim clearGroupBtn As New Button With {
                     .Text = "Kosongkan",
+                    .AccessibleName = $"Kosongkan pilihan {bucket.DisplayName}",
                     .Font = AppTheme.FontCaptionBold,
                     .Size = New Size(clearBtnWidth, 24),
                     .Location = New Point(Math.Max(180, cardWidth - clearBtnWidth - 14), 10),
@@ -1035,9 +1237,9 @@ Namespace Features
                 }
                 AppTheme.StyleSecondaryButton(clearGroupBtn)
                 clearGroupBtn.Font = AppTheme.FontCaptionBold
-                AddHandler clearGroupBtn.Click, Sub()
-                                                    ClearSingleSelectGroup(bucket)
-                                                End Sub
+                AttachButtonFocusIndicator(clearGroupBtn)
+                Dim capturedClear = clearGroupAction
+                AddHandler clearGroupBtn.Click, Sub() capturedClear()
                 card.Controls.Add(clearGroupBtn)
             End If
 
@@ -1070,28 +1272,27 @@ Namespace Features
             groupContainer As Panel,
             onSelected As Action(Of String)
         ) As Panel
+            Dim isHovered As Boolean = False
             Dim row As New Panel With {
                 .Width = width,
-                .Height = 34,
-                .BackColor = AppTheme.SurfaceMilk,
+                .Height = 36,
+                .Cursor = Cursors.Hand,
+                .BackColor = If(isSelected, ColorTranslator.FromHtml("#FAF2E8"), AppTheme.SurfaceMilk),
                 .Tag = "option-row"
             }
-            AddHandler row.Paint, Sub(s, e)
-                                      Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                          e.Graphics.DrawRectangle(pen, 0, 0, row.Width - 1, row.Height - 1)
-                                      End Using
-                                  End Sub
 
             Dim priceText = If(opt.ExtraPrice > 0D, "+" & AppTheme.FormatRupiah(opt.ExtraPrice), "Standar")
             Dim priceLabel As New Label With {
                 .AutoSize = False,
                 .Width = 104,
                 .Height = 24,
+                .Cursor = Cursors.Hand,
+                .BackColor = Color.Transparent,
                 .Font = AppTheme.FontCaptionBold,
                 .ForeColor = If(opt.ExtraPrice > 0D, AppTheme.PrimaryMocha, AppTheme.TextSecondary),
                 .TextAlign = ContentAlignment.MiddleRight,
                 .Anchor = AnchorStyles.Top Or AnchorStyles.Right,
-                .Location = New Point(width - 114, 5),
+                .Location = New Point(width - 114, 6),
                 .Text = priceText
             }
 
@@ -1100,14 +1301,40 @@ Namespace Features
                 .AutoCheck = False,
                 .Checked = isSelected,
                 .Cursor = Cursors.Hand,
+                .BackColor = Color.Transparent,
                 .Font = AppTheme.FontBody,
                 .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(10, 6),
+                .Location = New Point(10, 7),
                 .Size = New Size(Math.Max(120, width - 130), 22),
                 .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right,
                 .Text = opt.OptionName,
+                .AccessibleName = $"{opt.OptionName}, {priceText}",
                 .Tag = opt.Id
             }
+
+            Dim refreshRowVisual As Action =
+                Sub()
+                    If rb.Checked Then
+                        row.BackColor = ColorTranslator.FromHtml("#FAF2E8")
+                    ElseIf isHovered Then
+                        row.BackColor = ColorTranslator.FromHtml("#FCF7F0")
+                    Else
+                        row.BackColor = AppTheme.SurfaceMilk
+                    End If
+                    row.Invalidate()
+                End Sub
+
+            AddHandler row.Paint, Sub(s, e)
+                                      Dim borderColor = AppTheme.ControlBorder
+                                      Dim borderWidth = 1.0F
+                                      If rb.Focused OrElse rb.Checked Then
+                                          borderColor = AppTheme.FocusMocha
+                                          borderWidth = 2.0F
+                                      End If
+                                      Using pen As New Pen(borderColor, borderWidth)
+                                          e.Graphics.DrawRectangle(pen, 0, 0, row.Width - 1, row.Height - 1)
+                                      End Using
+                                  End Sub
 
             Dim activateRow As Action =
                 Sub()
@@ -1118,7 +1345,10 @@ Namespace Features
                             For Each inner As Control In siblingRow.Controls
                                 Dim siblingRb = TryCast(inner, RadioButton)
                                 If siblingRb IsNot Nothing Then
-                                    siblingRb.Checked = Object.ReferenceEquals(siblingRb, rb)
+                                    Dim nextChecked = Object.ReferenceEquals(siblingRb, rb)
+                                    siblingRb.Checked = nextChecked
+                                    siblingRow.BackColor = If(nextChecked, ColorTranslator.FromHtml("#FAF2E8"), AppTheme.SurfaceMilk)
+                                    siblingRow.Invalidate()
                                 End If
                             Next
                         Next
@@ -1129,12 +1359,31 @@ Namespace Features
                 End Sub
 
             AddHandler rb.Click, Sub() activateRow()
+            AddHandler rb.GotFocus, Sub() refreshRowVisual()
+            AddHandler rb.LostFocus, Sub() refreshRowVisual()
             AddHandler rb.KeyDown, Sub(sender, e)
                                        If e.KeyCode = Keys.Enter OrElse e.KeyCode = Keys.Space Then
                                            e.Handled = True
+                                           e.SuppressKeyPress = True
                                            activateRow()
                                        End If
                                    End Sub
+
+            Dim onEnter As EventHandler = Sub()
+                                              isHovered = True
+                                              refreshRowVisual()
+                                          End Sub
+            Dim onLeave As EventHandler = Sub()
+                                              isHovered = False
+                                              refreshRowVisual()
+                                          End Sub
+            AddHandler row.MouseEnter, onEnter
+            AddHandler row.MouseLeave, onLeave
+            AddHandler rb.MouseEnter, onEnter
+            AddHandler rb.MouseLeave, onLeave
+            AddHandler priceLabel.MouseEnter, onEnter
+            AddHandler priceLabel.MouseLeave, onLeave
+
             AddHandler row.Click, Sub()
                                       rb.Focus()
                                       activateRow()
@@ -1155,52 +1404,97 @@ Namespace Features
             isSelected As Boolean,
             onToggled As Action(Of Boolean)
         ) As Panel
+            Dim isHovered As Boolean = False
             Dim row As New Panel With {
                 .Width = width,
-                .Height = 34,
-                .BackColor = AppTheme.SurfaceMilk,
+                .Height = 36,
+                .Cursor = Cursors.Hand,
+                .BackColor = If(isSelected, ColorTranslator.FromHtml("#FAF2E8"), AppTheme.SurfaceMilk),
                 .Tag = "option-row"
             }
-            AddHandler row.Paint, Sub(s, e)
-                                      Using pen As New Pen(AppTheme.DividerAlmond, 1.0F)
-                                          e.Graphics.DrawRectangle(pen, 0, 0, row.Width - 1, row.Height - 1)
-                                      End Using
-                                  End Sub
 
             Dim priceText = If(opt.ExtraPrice > 0D, "+" & AppTheme.FormatRupiah(opt.ExtraPrice), "Gratis")
             Dim priceLabel As New Label With {
                 .AutoSize = False,
                 .Width = 104,
                 .Height = 24,
+                .Cursor = Cursors.Hand,
+                .BackColor = Color.Transparent,
                 .Font = AppTheme.FontCaptionBold,
                 .ForeColor = If(opt.ExtraPrice > 0D, AppTheme.PrimaryMocha, AppTheme.TextSecondary),
                 .TextAlign = ContentAlignment.MiddleRight,
                 .Anchor = AnchorStyles.Top Or AnchorStyles.Right,
-                .Location = New Point(width - 114, 5),
+                .Location = New Point(width - 114, 6),
                 .Text = priceText
             }
 
             Dim cb As New CheckBox With {
                 .Checked = isSelected,
                 .Cursor = Cursors.Hand,
+                .BackColor = Color.Transparent,
                 .Font = AppTheme.FontBody,
                 .ForeColor = AppTheme.TextPrimary,
-                .Location = New Point(10, 6),
+                .Location = New Point(10, 7),
                 .Size = New Size(Math.Max(120, width - 130), 22),
                 .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right,
                 .Text = opt.OptionName,
+                .AccessibleName = $"{opt.OptionName}, {priceText}",
                 .Tag = opt.Id
             }
 
+            Dim refreshRowVisual As Action =
+                Sub()
+                    If cb.Checked Then
+                        row.BackColor = ColorTranslator.FromHtml("#FAF2E8")
+                    ElseIf isHovered Then
+                        row.BackColor = ColorTranslator.FromHtml("#FCF7F0")
+                    Else
+                        row.BackColor = AppTheme.SurfaceMilk
+                    End If
+                    row.Invalidate()
+                End Sub
+
+            AddHandler row.Paint, Sub(s, e)
+                                      Dim borderColor = AppTheme.ControlBorder
+                                      Dim borderWidth = 1.0F
+                                      If cb.Focused OrElse cb.Checked Then
+                                          borderColor = AppTheme.FocusMocha
+                                          borderWidth = 2.0F
+                                      End If
+                                      Using pen As New Pen(borderColor, borderWidth)
+                                          e.Graphics.DrawRectangle(pen, 0, 0, row.Width - 1, row.Height - 1)
+                                      End Using
+                                  End Sub
+
             AddHandler cb.CheckedChanged, Sub()
+                                              refreshRowVisual()
                                               onToggled(cb.Checked)
                                           End Sub
+            AddHandler cb.GotFocus, Sub() refreshRowVisual()
+            AddHandler cb.LostFocus, Sub() refreshRowVisual()
             AddHandler cb.KeyDown, Sub(sender, e)
                                        If e.KeyCode = Keys.Enter Then
                                            e.Handled = True
+                                           e.SuppressKeyPress = True
                                            cb.Checked = Not cb.Checked
                                        End If
                                    End Sub
+
+            Dim onEnter As EventHandler = Sub()
+                                              isHovered = True
+                                              refreshRowVisual()
+                                          End Sub
+            Dim onLeave As EventHandler = Sub()
+                                              isHovered = False
+                                              refreshRowVisual()
+                                          End Sub
+            AddHandler row.MouseEnter, onEnter
+            AddHandler row.MouseLeave, onLeave
+            AddHandler cb.MouseEnter, onEnter
+            AddHandler cb.MouseLeave, onLeave
+            AddHandler priceLabel.MouseEnter, onEnter
+            AddHandler priceLabel.MouseLeave, onLeave
+
             AddHandler row.Click, Sub()
                                       cb.Focus()
                                       cb.Checked = Not cb.Checked
@@ -1226,12 +1520,11 @@ Namespace Features
             RefreshLiveSummary()
         End Sub
 
-        Private Sub ClearSingleSelectGroup(bucket As DrinkOptionGroupBucket)
+        Private Sub ClearSingleSelectGroupState(bucket As DrinkOptionGroupBucket)
             For Each opt In bucket.Options
                 _selectedOptionIds.Remove(opt.Id)
             Next
             HideFeedbackBanner()
-            RenderOptionsSection()
             RefreshLiveSummary()
         End Sub
 
@@ -1239,6 +1532,7 @@ Namespace Features
             If _selectedItem Is Nothing Then
                 _currentDraft = Nothing
                 _summaryOptionsLabel.Text = "Belum ada item dipilih."
+                _toolTip.SetToolTip(_summaryOptionsLabel, String.Empty)
                 _basePriceValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _extraPriceValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _unitTotalValueLabel.Text = AppTheme.FormatRupiah(0D)
@@ -1246,20 +1540,31 @@ Namespace Features
                 _subtotalValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _handoffBtn.Enabled = False
                 _resetOptionsBtn.Enabled = False
+                _qtyMinusBtn.Enabled = False
+                _qtyPlusBtn.Enabled = False
+                _quantityInput.Enabled = False
+                _notesTextBox.Enabled = False
                 Return
             End If
+
+            _quantityInput.Enabled = Not _isSubmittingDraft
+            _notesTextBox.Enabled = Not _isSubmittingDraft
 
             Dim quantity = ReadSafeQuantity()
             If quantity <= 0 Then
                 _currentDraft = Nothing
-                _summaryOptionsLabel.Text = $"{_selectedItem.Name}: kuantitas harus lebih dari 0."
+                Dim qtyMsg = $"{_selectedItem.Name}: kuantitas harus lebih dari 0."
+                _summaryOptionsLabel.Text = qtyMsg
+                _toolTip.SetToolTip(_summaryOptionsLabel, qtyMsg)
                 _basePriceValueLabel.Text = AppTheme.FormatRupiah(_selectedItem.BasePrice)
                 _extraPriceValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _unitTotalValueLabel.Text = AppTheme.FormatRupiah(_selectedItem.BasePrice)
                 _subtotalCaptionLabel.Text = "Subtotal (0x)"
                 _subtotalValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _handoffBtn.Enabled = False
-                _resetOptionsBtn.Enabled = True
+                _resetOptionsBtn.Enabled = Not _isSubmittingDraft
+                _qtyMinusBtn.Enabled = False
+                _qtyPlusBtn.Enabled = Not _isSubmittingDraft
                 Return
             End If
 
@@ -1276,19 +1581,24 @@ Namespace Features
             If Not validation.IsValid OrElse validation.Draft Is Nothing Then
                 _currentDraft = Nothing
                 _summaryOptionsLabel.Text = validation.ErrorMessage
+                _toolTip.SetToolTip(_summaryOptionsLabel, validation.ErrorMessage)
                 _basePriceValueLabel.Text = AppTheme.FormatRupiah(Math.Max(0D, _selectedItem.BasePrice))
                 _extraPriceValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _unitTotalValueLabel.Text = AppTheme.FormatRupiah(Math.Max(0D, _selectedItem.BasePrice))
                 _subtotalCaptionLabel.Text = $"Subtotal ({quantity}x)"
                 _subtotalValueLabel.Text = AppTheme.FormatRupiah(0D)
                 _handoffBtn.Enabled = False
-                _resetOptionsBtn.Enabled = True
+                _resetOptionsBtn.Enabled = Not _isSubmittingDraft
+                _qtyMinusBtn.Enabled = (quantity > 1) AndAlso (Not _isSubmittingDraft)
+                _qtyPlusBtn.Enabled = (quantity < DrinkOptionService.MaxQuantity) AndAlso (Not _isSubmittingDraft)
                 Return
             End If
 
             _currentDraft = validation.Draft
             Dim optionsSummary = _currentDraft.FormatSelectedOptionsSummary()
-            _summaryOptionsLabel.Text = $"{_currentDraft.ItemNameSnapshot} | {optionsSummary}"
+            Dim fullSummaryText = $"{_currentDraft.ItemNameSnapshot} | {optionsSummary}"
+            _summaryOptionsLabel.Text = fullSummaryText
+            _toolTip.SetToolTip(_summaryOptionsLabel, fullSummaryText)
             _basePriceValueLabel.Text = AppTheme.FormatRupiah(_currentDraft.UnitBasePrice)
             _extraPriceValueLabel.Text = If(_currentDraft.OptionsExtraPrice > 0D, "+" & AppTheme.FormatRupiah(_currentDraft.OptionsExtraPrice), AppTheme.FormatRupiah(0D))
             _unitTotalValueLabel.Text = AppTheme.FormatRupiah(_currentDraft.UnitTotal)
@@ -1303,7 +1613,9 @@ Namespace Features
         End Sub
 
         Private Function ReadSafeQuantity() As Integer
-            Dim rawText = If(_quantityInput.Text, String.Empty).Trim()
+            Dim qtyEditBox = _quantityInput.Controls.OfType(Of TextBox)().FirstOrDefault()
+            Dim sourceText = If(qtyEditBox IsNot Nothing, qtyEditBox.Text, _quantityInput.Text)
+            Dim rawText = If(sourceText, String.Empty).Trim()
             If String.IsNullOrEmpty(rawText) Then
                 Return 0
             End If
@@ -1316,20 +1628,26 @@ Namespace Features
             Return parsed
         End Function
 
+        Private Sub SetQuantityControlValue(quantity As Integer)
+            Dim clamped = Math.Max(1, Math.Min(DrinkOptionService.MaxQuantity, quantity))
+            _quantityInput.Value = CDec(clamped)
+            Dim qtyEditBox = _quantityInput.Controls.OfType(Of TextBox)().FirstOrDefault()
+            If qtyEditBox IsNot Nothing AndAlso Not String.Equals(qtyEditBox.Text, clamped.ToString(), StringComparison.Ordinal) Then
+                qtyEditBox.Text = clamped.ToString()
+            End If
+        End Sub
+
         Private Sub OnQuantityMinusClick(sender As Object, e As EventArgs)
             Dim current = ReadSafeQuantity()
-            If current > 1 Then
-                _quantityInput.Value = CDec(current - 1)
-            Else
-                _quantityInput.Value = 1D
-            End If
+            Dim nextQty = If(current > 1, current - 1, 1)
+            SetQuantityControlValue(nextQty)
             RefreshLiveSummary()
         End Sub
 
         Private Sub OnQuantityPlusClick(sender As Object, e As EventArgs)
             Dim current = ReadSafeQuantity()
             If current < DrinkOptionService.MaxQuantity Then
-                _quantityInput.Value = CDec(Math.Max(1, current + 1))
+                SetQuantityControlValue(Math.Max(1, current + 1))
             End If
             RefreshLiveSummary()
         End Sub
@@ -1345,7 +1663,7 @@ Namespace Features
 
             _isUpdatingSelectionControls = True
             Try
-                _quantityInput.Value = 1D
+                SetQuantityControlValue(1)
                 _notesTextBox.Clear()
             Finally
                 _isUpdatingSelectionControls = False
@@ -1432,6 +1750,7 @@ Namespace Features
 
         Private Sub ShowFeedbackBanner(message As String, isError As Boolean)
             _feedbackBanner.Text = message
+            _toolTip.SetToolTip(_feedbackBanner, message)
             If isError Then
                 _feedbackBanner.BackColor = AppTheme.ErrorTint
                 _feedbackBanner.ForeColor = AppTheme.ErrorText
@@ -1447,6 +1766,7 @@ Namespace Features
             If Not _feedbackBanner.Visible AndAlso String.IsNullOrEmpty(_feedbackBanner.Text) Then Return
             _feedbackBanner.Visible = False
             _feedbackBanner.Text = String.Empty
+            _toolTip.SetToolTip(_feedbackBanner, String.Empty)
             LayoutSummaryPanel()
         End Sub
 
@@ -1645,9 +1965,27 @@ Namespace Features
         Private Sub OnConfigurationChanged(sender As Object, e As EventArgs)
             If IsDisposed Then Return
             If InvokeRequired Then
-                BeginInvoke(New Action(AddressOf LoadAvailableMenuAsync))
+                BeginInvoke(New Action(Sub() LoadAvailableMenuAsync()))
             Else
                 LoadAvailableMenuAsync()
+            End If
+        End Sub
+
+        Private Sub OnSessionChanged(sender As Object, e As EventArgs)
+            If IsDisposed OrElse Not IsHandleCreated Then Return
+            If InvokeRequired Then
+                BeginInvoke(New Action(Sub() LoadAvailableMenuAsync()))
+            Else
+                LoadAvailableMenuAsync()
+            End If
+        End Sub
+
+        Private Sub OnPendingDraftsChanged(sender As Object, e As EventArgs)
+            If IsDisposed OrElse Not IsHandleCreated Then Return
+            If InvokeRequired Then
+                BeginInvoke(New Action(AddressOf UpdateDraftButtonState))
+            Else
+                UpdateDraftButtonState()
             End If
         End Sub
 
@@ -1675,10 +2013,13 @@ Namespace Features
 
             If _runtimeInitialized Then
                 RemoveHandler SupabaseClientProvider.ConfigurationChanged, AddressOf OnConfigurationChanged
+                RemoveHandler AppSession.SessionChanged, AddressOf OnSessionChanged
+                RemoveHandler DrinkDraftHandoff.PendingDraftsChanged, AddressOf OnPendingDraftsChanged
                 RemoveHandler Me.Load, AddressOf OnControlLoad
                 _runtimeInitialized = False
             End If
 
+            _toolTip.Dispose()
             SetSelectedPhoto(Nothing)
         End Sub
 
@@ -1780,13 +2121,11 @@ Namespace Features
                         e.Graphics.FillPath(bgBrush, cardPath)
                     End Using
 
-                    Dim borderColor = AppTheme.DividerAlmond
+                    Dim borderColor = AppTheme.ControlBorder
                     Dim borderWidth = 1.0F
                     If Focused OrElse _isSelected Then
                         borderColor = AppTheme.FocusMocha
                         borderWidth = 2.0F
-                    ElseIf _isHovered Then
-                        borderColor = AppTheme.ControlBorder
                     End If
 
                     Using borderPen As New Pen(borderColor, borderWidth)
@@ -1794,18 +2133,23 @@ Namespace Features
                     End Using
                 End Using
 
-                Dim photoRect As New Rectangle(10, 10, 72, 72)
+                Dim photoSize = If(Width < 268, 62, 72)
+                Dim photoTop = (Height - photoSize) \ 2
+                Dim photoRect As New Rectangle(10, photoTop, photoSize, photoSize)
                 Using photoPath = AppTheme.CreateRoundedRectPath(photoRect, 6)
                     Using frameBrush As New SolidBrush(AppTheme.SidebarOat)
                         e.Graphics.FillPath(frameBrush, photoPath)
                     End Using
 
                     If _photo IsNot Nothing Then
-                        Dim oldClip = e.Graphics.Clip
-                        e.Graphics.SetClip(photoPath)
-                        Dim drawRect = FitInside(_photo.Size, photoRect)
-                        e.Graphics.DrawImage(_photo, drawRect)
-                        e.Graphics.Clip = oldClip
+                        Dim state = e.Graphics.Save()
+                        Try
+                            e.Graphics.SetClip(photoPath)
+                            Dim drawRect = FitInside(_photo.Size, photoRect)
+                            e.Graphics.DrawImage(_photo, drawRect)
+                        Finally
+                            e.Graphics.Restore(state)
+                        End Try
                     Else
                         TextRenderer.DrawText(
                             e.Graphics,
@@ -1822,7 +2166,7 @@ Namespace Features
                 End Using
 
                 Dim textX = photoRect.Right + 12
-                Dim textWidth = Math.Max(80, Width - textX - 12)
+                Dim textWidth = Math.Max(80, Width - textX - 10)
 
                 Dim nameRect As New Rectangle(textX, 10, textWidth, 22)
                 TextRenderer.DrawText(
@@ -1833,8 +2177,7 @@ Namespace Features
                     AppTheme.TextPrimary,
                     TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
 
-                Dim catWidth = TextRenderer.MeasureText(Item.Category, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 4
-                Dim catRect As New Rectangle(textX, 34, Math.Min(catWidth, textWidth), 18)
+                Dim catRect As New Rectangle(textX, 34, textWidth, 18)
                 TextRenderer.DrawText(
                     e.Graphics,
                     Item.Category,
@@ -1844,12 +2187,33 @@ Namespace Features
                     TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
 
                 Dim customText = If(Item.SupportsCustomization, "Bisa Dikustom", "Resep Standar")
+                Dim compactCustomText = If(Item.SupportsCustomization, "Kustom", "Standar")
                 Dim customBg = If(Item.SupportsCustomization, AppTheme.AccentStrawberryTint, AppTheme.TaupeTint)
                 Dim customFg = If(Item.SupportsCustomization, AppTheme.AccentStrawberryText, AppTheme.TaupeText)
-                Dim badgeWidth = TextRenderer.MeasureText(customText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 12
-                Dim badgeX = catRect.Right + 6
-                If badgeX + badgeWidth <= Width - 10 Then
-                    Dim badgeRect As New Rectangle(badgeX, 33, badgeWidth, 20)
+                Dim priceStr = AppTheme.FormatRupiah(Item.BasePrice)
+                Dim minPriceWidth = TextRenderer.MeasureText(priceStr, AppTheme.FontBodyBold, Size.Empty, TextFormatFlags.SingleLine).Width + 6
+
+                Dim badgeWidth = TextRenderer.MeasureText(customText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 10
+                Dim displayBadgeText = customText
+                If textX + minPriceWidth + 6 + badgeWidth > Width - 10 Then
+                    displayBadgeText = compactCustomText
+                    badgeWidth = TextRenderer.MeasureText(displayBadgeText, AppTheme.FontCaptionBold, Size.Empty, TextFormatFlags.SingleLine).Width + 10
+                End If
+
+                Dim badgeX = Math.Max(textX + minPriceWidth + 4, Width - 10 - badgeWidth)
+                Dim priceWidth = Math.Max(66, badgeX - textX - 4)
+
+                Dim priceRect As New Rectangle(textX, 58, priceWidth, 22)
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    priceStr,
+                    AppTheme.FontBodyBold,
+                    priceRect,
+                    AppTheme.PrimaryMocha,
+                    TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
+
+                Dim badgeRect As New Rectangle(badgeX, 59, Math.Min(badgeWidth, Width - badgeX - 10), 20)
+                If badgeRect.Width >= 42 Then
                     Using badgePath = AppTheme.CreateRoundedRectPath(badgeRect, 4)
                         Using badgeBrush As New SolidBrush(customBg)
                             e.Graphics.FillPath(badgeBrush, badgePath)
@@ -1857,21 +2221,12 @@ Namespace Features
                     End Using
                     TextRenderer.DrawText(
                         e.Graphics,
-                        customText,
+                        displayBadgeText,
                         AppTheme.FontCaptionBold,
                         badgeRect,
                         customFg,
-                        TextFormatFlags.HorizontalCenter Or TextFormatFlags.VerticalCenter)
+                        TextFormatFlags.HorizontalCenter Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
                 End If
-
-                Dim priceRect As New Rectangle(textX, 58, textWidth, 22)
-                TextRenderer.DrawText(
-                    e.Graphics,
-                    AppTheme.FormatRupiah(Item.BasePrice),
-                    AppTheme.FontBodyBold,
-                    priceRect,
-                    AppTheme.PrimaryMocha,
-                    TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis)
             End Sub
 
             Private Shared Function FitInside(sourceSize As Size, target As Rectangle) As Rectangle
@@ -1899,9 +2254,12 @@ Namespace Features
             Private ReadOnly _draftListBox As New ListBox()
             Private ReadOnly _jsonPreviewBox As New TextBox()
             Private ReadOnly _totalLabel As New Label()
+            Private ReadOnly _copyStatusLabel As New Label()
             Private ReadOnly _removeBtn As New Button()
             Private ReadOnly _clearAllBtn As New Button()
+            Private ReadOnly _copyJsonBtn As New Button()
             Private ReadOnly _closeBtn As New Button()
+            Private ReadOnly _monoFont As New Font("Consolas", 8.5F, FontStyle.Regular, GraphicsUnit.Point)
             Private _drafts As New List(Of ConfiguredDrinkDraft)()
 
             Public Sub New()
@@ -1910,7 +2268,7 @@ Namespace Features
                 StartPosition = FormStartPosition.CenterParent
                 MaximizeBox = False
                 MinimizeBox = False
-                ClientSize = New Size(660, 470)
+                ClientSize = New Size(660, 480)
                 BackColor = AppTheme.CanvasCream
                 Font = AppTheme.FontBody
                 ForeColor = AppTheme.TextPrimary
@@ -1921,6 +2279,7 @@ Namespace Features
                     .Font = AppTheme.FontSectionTitle,
                     .ForeColor = AppTheme.TextPrimary,
                     .Location = New Point(20, 16),
+                    .TabIndex = 0,
                     .Text = "Daftar Draft Minuman (Handoff ke Alur Pesanan)"
                 }
 
@@ -1930,6 +2289,7 @@ Namespace Features
                     .ForeColor = AppTheme.TextSecondary,
                     .Location = New Point(20, 40),
                     .Size = New Size(620, 32),
+                    .TabIndex = 1,
                     .Text = "Draft ini disimpan sementara di memori untuk diserahkan ke Friends Order Room atau alur pesanan. Belum menulis record orders atau order_items ke database."
                 }
 
@@ -1939,6 +2299,8 @@ Namespace Features
                 _draftListBox.ForeColor = AppTheme.TextPrimary
                 _draftListBox.Font = AppTheme.FontBody
                 _draftListBox.BorderStyle = BorderStyle.FixedSingle
+                _draftListBox.AccessibleName = "Daftar draft minuman"
+                _draftListBox.TabIndex = 2
                 AddHandler _draftListBox.SelectedIndexChanged, Sub() UpdateSelectedJsonPreview()
 
                 Dim jsonLbl As New Label With {
@@ -1946,6 +2308,7 @@ Namespace Features
                     .Font = AppTheme.FontCaptionBold,
                     .ForeColor = AppTheme.TextSecondary,
                     .Location = New Point(314, 78),
+                    .TabIndex = 3,
                     .Text = "Snapshot JSON (siap dipetakan ke order_items)"
                 }
 
@@ -1956,31 +2319,57 @@ Namespace Features
                 _jsonPreviewBox.ScrollBars = ScrollBars.Vertical
                 _jsonPreviewBox.BackColor = AppTheme.SurfaceMilk
                 _jsonPreviewBox.ForeColor = AppTheme.TextPrimary
-                _jsonPreviewBox.Font = New Font("Consolas", 8.5F, FontStyle.Regular, GraphicsUnit.Point)
+                _jsonPreviewBox.Font = _monoFont
                 _jsonPreviewBox.BorderStyle = BorderStyle.FixedSingle
+                _jsonPreviewBox.AccessibleName = "Preview JSON draft terpilih"
+                _jsonPreviewBox.TabIndex = 4
 
                 _totalLabel.AutoSize = True
                 _totalLabel.Font = AppTheme.FontBodyBold
                 _totalLabel.ForeColor = AppTheme.PrimaryMocha
-                _totalLabel.Location = New Point(20, 384)
+                _totalLabel.Location = New Point(20, 382)
+                _totalLabel.TabIndex = 5
+
+                _copyStatusLabel.AutoSize = True
+                _copyStatusLabel.Font = AppTheme.FontCaptionBold
+                _copyStatusLabel.ForeColor = AppTheme.SageText
+                _copyStatusLabel.Location = New Point(20, 404)
+                _copyStatusLabel.Visible = False
+                _copyStatusLabel.TabIndex = 6
 
                 _removeBtn.Text = "Hapus Terpilih"
-                _removeBtn.Size = New Size(134, 34)
-                _removeBtn.Location = New Point(20, 418)
+                _removeBtn.Size = New Size(130, 34)
+                _removeBtn.Location = New Point(20, 428)
+                _removeBtn.TabIndex = 7
                 AppTheme.StyleSecondaryButton(_removeBtn)
+                AttachButtonFocusIndicator(_removeBtn)
+                AttachButtonEnabledStyle(_removeBtn, isPrimary:=False)
                 AddHandler _removeBtn.Click, AddressOf OnRemoveSelectedClick
 
                 _clearAllBtn.Text = "Bersihkan Semua"
-                _clearAllBtn.Size = New Size(146, 34)
-                _clearAllBtn.Location = New Point(162, 418)
+                _clearAllBtn.Size = New Size(142, 34)
+                _clearAllBtn.Location = New Point(158, 428)
+                _clearAllBtn.TabIndex = 8
                 AppTheme.StyleDangerButton(_clearAllBtn)
+                AttachButtonFocusIndicator(_clearAllBtn)
                 AddHandler _clearAllBtn.Click, AddressOf OnClearAllClick
+
+                _copyJsonBtn.Text = "Salin JSON"
+                _copyJsonBtn.Size = New Size(112, 34)
+                _copyJsonBtn.Location = New Point(410, 428)
+                _copyJsonBtn.TabIndex = 9
+                AppTheme.StyleSecondaryButton(_copyJsonBtn)
+                AttachButtonFocusIndicator(_copyJsonBtn)
+                AttachButtonEnabledStyle(_copyJsonBtn, isPrimary:=False)
+                AddHandler _copyJsonBtn.Click, AddressOf OnCopyJsonClick
 
                 _closeBtn.Text = "Tutup"
                 _closeBtn.Size = New Size(110, 34)
-                _closeBtn.Location = New Point(530, 418)
+                _closeBtn.Location = New Point(530, 428)
                 _closeBtn.DialogResult = DialogResult.Cancel
+                _closeBtn.TabIndex = 10
                 AppTheme.StylePrimaryButton(_closeBtn)
+                AttachButtonFocusIndicator(_closeBtn)
 
                 Controls.AddRange({
                     headerLbl,
@@ -1989,8 +2378,10 @@ Namespace Features
                     jsonLbl,
                     _jsonPreviewBox,
                     _totalLabel,
+                    _copyStatusLabel,
                     _removeBtn,
                     _clearAllBtn,
+                    _copyJsonBtn,
                     _closeBtn
                 })
 
@@ -2000,6 +2391,7 @@ Namespace Features
             Private Sub ReloadDrafts()
                 _drafts = DrinkDraftHandoff.GetPendingDrafts()
                 _draftListBox.Items.Clear()
+                _copyStatusLabel.Visible = False
 
                 Dim grandTotal As Decimal = 0D
                 For i = 0 To _drafts.Count - 1
@@ -2019,15 +2411,33 @@ Namespace Features
             End Sub
 
             Private Sub UpdateSelectedJsonPreview()
+                _copyStatusLabel.Visible = False
                 Dim idx = _draftListBox.SelectedIndex
                 If idx < 0 OrElse idx >= _drafts.Count Then
                     _jsonPreviewBox.Text = "Belum ada draft tersimpan."
                     _removeBtn.Enabled = False
+                    _copyJsonBtn.Enabled = False
                     Return
                 End If
 
                 _removeBtn.Enabled = True
+                _copyJsonBtn.Enabled = True
                 _jsonPreviewBox.Text = _drafts(idx).ToDraftJson(indented:=True)
+            End Sub
+
+            Private Sub OnCopyJsonClick(sender As Object, e As EventArgs)
+                Dim idx = _draftListBox.SelectedIndex
+                If idx < 0 OrElse idx >= _drafts.Count Then Return
+                Try
+                    Clipboard.SetText(_drafts(idx).ToDraftJson(indented:=True))
+                    _copyStatusLabel.ForeColor = AppTheme.SageText
+                    _copyStatusLabel.Text = "JSON draft berhasil disalin ke clipboard."
+                    _copyStatusLabel.Visible = True
+                Catch
+                    _copyStatusLabel.ForeColor = AppTheme.ErrorText
+                    _copyStatusLabel.Text = "Clipboard sedang sibuk. Coba salin ulang."
+                    _copyStatusLabel.Visible = True
+                End Try
             End Sub
 
             Private Sub OnRemoveSelectedClick(sender As Object, e As EventArgs)
@@ -2040,6 +2450,13 @@ Namespace Features
             Private Sub OnClearAllClick(sender As Object, e As EventArgs)
                 DrinkDraftHandoff.ClearPending()
                 ReloadDrafts()
+            End Sub
+
+            Protected Overrides Sub Dispose(disposing As Boolean)
+                If disposing Then
+                    _monoFont.Dispose()
+                End If
+                MyBase.Dispose(disposing)
             End Sub
         End Class
     End Class

@@ -167,6 +167,7 @@ Namespace Models
         Private Shared _latestDraft As ConfiguredDrinkDraft
 
         Public Shared Event DraftSubmitted As EventHandler(Of DrinkDraftSubmittedEventArgs)
+        Public Shared Event PendingDraftsChanged As EventHandler
 
         Public Shared ReadOnly Property LatestDraft As ConfiguredDrinkDraft
             Get
@@ -196,6 +197,7 @@ Namespace Models
             End SyncLock
 
             RaiseEvent DraftSubmitted(Nothing, New DrinkDraftSubmittedEventArgs(snapshot))
+            RaiseEvent PendingDraftsChanged(Nothing, EventArgs.Empty)
         End Sub
 
         Public Shared Function GetPendingDrafts() As List(Of ConfiguredDrinkDraft)
@@ -205,29 +207,49 @@ Namespace Models
         End Function
 
         Public Shared Function ConsumePendingDrafts() As List(Of ConfiguredDrinkDraft)
+            Dim items As List(Of ConfiguredDrinkDraft)
+            Dim hadItems As Boolean
             SyncLock SyncRoot
-                Dim items = PendingList.Select(Function(d) d.Clone()).ToList()
+                hadItems = PendingList.Count > 0
+                items = PendingList.Select(Function(d) d.Clone()).ToList()
                 PendingList.Clear()
-                Return items
+                _latestDraft = Nothing
             End SyncLock
+
+            If hadItems Then
+                RaiseEvent PendingDraftsChanged(Nothing, EventArgs.Empty)
+            End If
+            Return items
         End Function
 
         Public Shared Function RemovePendingAt(index As Integer) As Boolean
+            Dim removed As Boolean
             SyncLock SyncRoot
                 If index < 0 OrElse index >= PendingList.Count Then
                     Return False
                 End If
                 PendingList.RemoveAt(index)
                 _latestDraft = If(PendingList.Count > 0, PendingList(PendingList.Count - 1), Nothing)
-                Return True
+                removed = True
             End SyncLock
+
+            If removed Then
+                RaiseEvent PendingDraftsChanged(Nothing, EventArgs.Empty)
+            End If
+            Return True
         End Function
 
         Public Shared Sub ClearPending()
+            Dim hadItems As Boolean
             SyncLock SyncRoot
+                hadItems = PendingList.Count > 0 OrElse _latestDraft IsNot Nothing
                 PendingList.Clear()
                 _latestDraft = Nothing
             End SyncLock
+
+            If hadItems Then
+                RaiseEvent PendingDraftsChanged(Nothing, EventArgs.Empty)
+            End If
         End Sub
     End Class
 End Namespace
