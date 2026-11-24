@@ -6,6 +6,7 @@
     <StartupObject>Sub Main</StartupObject>
     <UseWindowsForms>true</UseWindowsForms>
     <MyType>WindowsForms</MyType>
+    <AppDesignerFolder>My Project</AppDesignerFolder>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDPIUnaware>true</ForceDesignerDPIUnaware>
   </PropertyGroup>
@@ -70,5 +71,212 @@
   <ItemGroup>
     <PackageReference Include="Supabase" Version="8.12.0" />
   </ItemGroup>
+
+  <ItemGroup Condition="Exists('appsettings.json')">
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <UsingTask
+    TaskName="ValidateSupabasePublishConfigTask"
+    TaskFactory="RoslynCodeTaskFactory"
+    AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <ConfigPath ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.Collections.Generic" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Text" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+        if (!File.Exists(ConfigPath))
+        {
+            Log.LogError("Publish dibatalkan: file '{0}' tidak ditemukan. Salin 'appsettings.example.json' menjadi 'CuppaClub/appsettings.json' dan isi SupabaseUrl serta SupabaseAnonKey (publishable/anon key) yang valid sebelum publish.", ConfigPath);
+            return false;
+        }
+
+        string rawJson;
+        try
+        {
+            rawJson = File.ReadAllText(ConfigPath, Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            Log.LogError("Publish dibatalkan: gagal membaca '{0}': {1}", ConfigPath, ex.Message);
+            return false;
+        }
+
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            int pos = 0;
+            Func<char> peek = () => pos < rawJson.Length ? rawJson[pos] : '\0';
+            Action skipWs = () => { while (pos < rawJson.Length && char.IsWhiteSpace(rawJson[pos])) pos++; };
+            Func<string> readJsonString = () =>
+            {
+                if (peek() != '"') throw new FormatException("String JSON diharapkan.");
+                pos++;
+                var sb = new StringBuilder();
+                while (pos < rawJson.Length)
+                {
+                    char c = rawJson[pos++];
+                    if (c == '"') return sb.ToString();
+                    if (c == '\\')
+                    {
+                        if (pos >= rawJson.Length) throw new FormatException("Escape JSON tidak lengkap.");
+                        char esc = rawJson[pos++];
+                        switch (esc)
+                        {
+                            case '"': sb.Append('"'); break;
+                            case '\\': sb.Append('\\'); break;
+                            case '/': sb.Append('/'); break;
+                            case 'b': sb.Append('\b'); break;
+                            case 'f': sb.Append('\f'); break;
+                            case 'n': sb.Append('\n'); break;
+                            case 'r': sb.Append('\r'); break;
+                            case 't': sb.Append('\t'); break;
+                            case 'u':
+                                if (pos + 4 > rawJson.Length) throw new FormatException("Escape unicode JSON tidak valid.");
+                                sb.Append((char)Convert.ToInt32(rawJson.Substring(pos, 4), 16));
+                                pos += 4;
+                                break;
+                            default:
+                                throw new FormatException("Karakter escape JSON tidak dikenal.");
+                        }
+                    }
+                    else
+                    {
+                        sb.Append(c);
+                    }
+                }
+                throw new FormatException("String JSON tidak tertutup.");
+            };
+
+            skipWs();
+            if (peek() != '{') throw new FormatException("Root JSON harus berupa object.");
+            pos++;
+            skipWs();
+            if (peek() != '}')
+            {
+                while (true)
+                {
+                    skipWs();
+                    string propName = readJsonString();
+                    skipWs();
+                    if (peek() != ':') throw new FormatException("Karakter ':' diharapkan setelah nama properti JSON.");
+                    pos++;
+                    skipWs();
+                    if (peek() != '"') throw new FormatException("Nilai properti '" + propName + "' harus berupa string JSON.");
+                    string propVal = readJsonString();
+                    fields[propName] = propVal;
+                    skipWs();
+                    if (peek() == ',')
+                    {
+                        pos++;
+                        continue;
+                    }
+                    if (peek() == '}')
+                    {
+                        pos++;
+                        break;
+                    }
+                    throw new FormatException("Karakter ',' atau '}' diharapkan pada object JSON.");
+                }
+            }
+            else
+            {
+                pos++;
+            }
+            skipWs();
+            if (pos != rawJson.Length) throw new FormatException("Terdapat karakter tambahan setelah object JSON.");
+        }
+        catch (Exception ex)
+        {
+            Log.LogError("Publish dibatalkan: '{0}' bukan JSON konfigurasi yang valid ({1}).", ConfigPath, ex.Message);
+            return false;
+        }
+
+        string url = fields.ContainsKey("SupabaseUrl") ? (fields["SupabaseUrl"] ?? string.Empty).Trim().TrimEnd('/') : string.Empty;
+        string key = fields.ContainsKey("SupabaseAnonKey") ? (fields["SupabaseAnonKey"] ?? string.Empty).Trim() : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            Log.LogError("Publish dibatalkan: 'SupabaseUrl' pada '{0}' masih kosong.", ConfigPath);
+            return false;
+        }
+
+        Uri parsedUri;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out parsedUri) ||
+            !string.Equals(parsedUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            Log.LogError("Publish dibatalkan: 'SupabaseUrl' pada '{0}' harus berupa URL HTTPS yang valid untuk distribusi Release.", ConfigPath);
+            return false;
+        }
+
+        string[] placeholders = new[] { "YOUR_", "REPLACE_ME", "CHANGE_ME", "PLACEHOLDER", "<", ">", "xxxx.supabase.co", "example.supabase.co" };
+        if (placeholders.Any(p => url.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0))
+        {
+            Log.LogError("Publish dibatalkan: 'SupabaseUrl' pada '{0}' masih berisi nilai placeholder.", ConfigPath);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            Log.LogError("Publish dibatalkan: 'SupabaseAnonKey' pada '{0}' masih kosong.", ConfigPath);
+            return false;
+        }
+
+        if (key.Any(char.IsWhiteSpace))
+        {
+            Log.LogError("Publish dibatalkan: 'SupabaseAnonKey' pada '{0}' tidak boleh mengandung spasi atau baris baru.", ConfigPath);
+            return false;
+        }
+
+        if (placeholders.Any(p => key.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0))
+        {
+            Log.LogError("Publish dibatalkan: 'SupabaseAnonKey' pada '{0}' masih berisi nilai placeholder.", ConfigPath);
+            return false;
+        }
+
+        if (key.StartsWith("sb_secret_", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.LogError("Publish dibatalkan: 'sb_secret_' (service_role) dilarang keras dibundel dalam aplikasi desktop. Gunakan publishable/anon key.");
+            return false;
+        }
+
+        string[] jwtParts = key.Split('.');
+        if (jwtParts.Length == 3)
+        {
+            try
+            {
+                string payload = jwtParts[1].Replace('-', '+').Replace('_', '/');
+                int pad = payload.Length % 4;
+                if (pad > 0) payload += new string('=', 4 - pad);
+                string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+                if (Regex.IsMatch(decoded, "\"role\"\\s*:\\s*\"service_role\"", RegexOptions.IgnoreCase))
+                {
+                    Log.LogError("Publish dibatalkan: JWT 'service_role' dilarang keras dibundel dalam aplikasi desktop. Gunakan publishable/anon key.");
+                    return false;
+                }
+            }
+            catch
+            {
+                // Ignore malformed base64 segments; key format check applies elsewhere.
+            }
+        }
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="ValidatePackagedSupabaseConfig" BeforeTargets="Publish">
+    <ValidateSupabasePublishConfigTask ConfigPath="$(MSBuildProjectDirectory)\appsettings.json" />
+  </Target>
 
 </Project>
