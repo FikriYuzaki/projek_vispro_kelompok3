@@ -1769,8 +1769,14 @@ Namespace Features
 
             Dim expectedOwnerId = DrinkDraftHandoff.CurrentOwnerUserId
             If String.IsNullOrEmpty(expectedOwnerId) Then
+                ApplySessionChangeOnUiThread()
                 ShowFeedbackBanner("Masuk ke akun terlebih dahulu untuk menyimpan dan melihat draft pesanan.", isError:=True)
                 RefreshLiveSummary()
+                Return
+            End If
+
+            If Not String.Equals(expectedOwnerId, _lastObservedSessionUserId, StringComparison.OrdinalIgnoreCase) Then
+                ApplySessionChangeOnUiThread()
                 Return
             End If
 
@@ -1798,9 +1804,9 @@ Namespace Features
                 LayoutSummaryPanel()
 
                 ' Abort publish if the active account logged out or switched while validation was in flight.
-                If Not String.Equals(expectedOwnerId, DrinkDraftHandoff.CurrentOwnerUserId, StringComparison.OrdinalIgnoreCase) Then
-                    UpdateDraftButtonState()
-                    RefreshLiveSummary()
+                If Not String.Equals(expectedOwnerId, DrinkDraftHandoff.CurrentOwnerUserId, StringComparison.OrdinalIgnoreCase) OrElse
+                   Not String.Equals(expectedOwnerId, _lastObservedSessionUserId, StringComparison.OrdinalIgnoreCase) Then
+                    ApplySessionChangeOnUiThread()
                     Return
                 End If
 
@@ -1829,6 +1835,11 @@ Namespace Features
                 If IsDisposed OrElse Not IsHandleCreated Then Return
                 _isSubmittingDraft = False
                 LayoutSummaryPanel()
+                If Not String.Equals(expectedOwnerId, DrinkDraftHandoff.CurrentOwnerUserId, StringComparison.OrdinalIgnoreCase) OrElse
+                   Not String.Equals(expectedOwnerId, _lastObservedSessionUserId, StringComparison.OrdinalIgnoreCase) Then
+                    ApplySessionChangeOnUiThread()
+                    Return
+                End If
                 ShowFeedbackBanner(FormatUserError(ex, "Gagal memvalidasi pilihan ke Supabase."), isError:=True)
                 RefreshLiveSummary()
             End Try
