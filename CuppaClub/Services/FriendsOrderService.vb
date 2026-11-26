@@ -20,6 +20,7 @@ Namespace Services
         Connected = 2
         Reconnecting = 3
         [Error] = 4
+        PublicationUnavailable = 5
     End Enum
 
     Public NotInheritable Class FriendsRoomRealtimeSubscription
@@ -333,8 +334,10 @@ Namespace Services
 
         Public Async Function LockRoomAsync(roomId As String, lockedAtUtc As DateTimeOffset) As Task(Of OrderRoom) Implements IFriendsOrderDataSource.LockRoomAsync
             Dim client = Await SupabaseClientProvider.GetClientAsync().ConfigureAwait(False)
+            ' Conditional update: only lock when status is still 'open' to prevent race conditions.
             Dim response = Await client.From(Of OrderRoom)().
                 Filter("id", Constants.Operator.Equals, roomId).
+                Filter("status", Constants.Operator.Equals, "open").
                 Set(Function(r) CObj(r.Status), "locked").
                 Set(Function(r) CObj(r.LockedAt), lockedAtUtc).
                 Update().ConfigureAwait(False)
@@ -344,13 +347,27 @@ Namespace Services
             End If
 
             Dim refreshed = Await GetRoomByIdAsync(roomId).ConfigureAwait(False)
-            If refreshed IsNot Nothing AndAlso refreshed.IsLocked Then
-                Return refreshed
+            If refreshed IsNot Nothing Then
+                If refreshed.IsLocked Then
+                    Throw New FriendsOrderException(
+                        FriendsOrderErrorKind.RoomLocked,
+                        "Room sudah terkunci sebelumnya.")
+                End If
+                If refreshed.IsCancelled Then
+                    Throw New FriendsOrderException(
+                        FriendsOrderErrorKind.RoomCancelled,
+                        "Room sudah dibatalkan sehingga tidak dapat dikunci.")
+                End If
+                If refreshed.IsSubmitted Then
+                    Throw New FriendsOrderException(
+                        FriendsOrderErrorKind.RoomSubmitted,
+                        "Pesanan room sudah dikirim sehingga tidak dapat dikunci.")
+                End If
             End If
 
             Throw New FriendsOrderException(
                 FriendsOrderErrorKind.RlsBlocked,
-                "Room tidak dapat dikunci. Hanya host room yang memiliki izin mengunci room ini.")
+                "Room tidak dapat dikunci. Hanya host room yang memiliki izin mengunci room yang masih terbuka.")
         End Function
 
         Public Async Function GetAvailableMenuItemsAsync() As Task(Of List(Of MenuItem)) Implements IFriendsOrderDataSource.GetAvailableMenuItemsAsync
@@ -408,7 +425,7 @@ Namespace Services
                         Case RealtimeConstants.ChannelState.Joining
                             onStateChanged?.Invoke(FriendsRoomRealtimeState.Connecting, "Menyambungkan channel room...")
                         Case RealtimeConstants.ChannelState.Errored
-                            onStateChanged?.Invoke(FriendsRoomRealtimeState.[Error], "Channel realtime mengalami gangguan. Gunakan Muat Ulang.")
+                            onStateChanged?.Invoke(FriendsRoomRealtimeState.PublicationUnavailable, "Realtime tidak tersedia (publikasi tabel belum aktif atau channel error). Gunakan Muat Ulang.")
                         Case RealtimeConstants.ChannelState.Closed, RealtimeConstants.ChannelState.Leaving
                             onStateChanged?.Invoke(FriendsRoomRealtimeState.Disconnected, "Realtime terputus. Gunakan Muat Ulang.")
                     End Select
@@ -900,7 +917,32 @@ Namespace Services
                 .TotalAmount = 0D
             }
 
-            Return Await _dataSource.InsertParentOrderAsync(newOrder).ConfigureAwait(False)
+            Dim conflictDetected = False
+            Try
+                Return Await _dataSource.InsertParentOrderAsync(newOrder).ConfigureAwait(False)
+            Catch ex As FriendsOrderException When ex.ErrorKind = FriendsOrderErrorKind.ParentOrderConflict OrElse ex.ErrorKind = FriendsOrderErrorKind.CodeCollision
+                conflictDetected = True
+            Catch ex As Exception
+                Dim mapped = MapException(ex, "Gagal membuat order induk grup.")
+                If mapped.ErrorKind = FriendsOrderErrorKind.ParentOrderConflict OrElse mapped.ErrorKind = FriendsOrderErrorKind.CodeCollision Then
+                    conflictDetected = True
+                Else
+                    Throw mapped
+                End If
+            End Try
+
+            ' Another concurrent member created the parent order first (SQLSTATE 23505 on uq_orders_single_parent_per_room).
+            ' Re-fetch and reuse the winning parent order so each room strictly has one parent order.
+            If conflictDetected Then
+                Dim winner = Await _dataSource.GetParentOrderByRoomAsync(room.Id).ConfigureAwait(False)
+                If winner IsNot Nothing Then
+                    Return winner
+                End If
+            End If
+
+            Throw New FriendsOrderException(
+                FriendsOrderErrorKind.ParentOrderConflict,
+                "Order induk grup sedang dibuat oleh anggota lain. Silakan coba lagi.")
         End Function
 
         Private Shared Function GenerateGroupOrderNumber(roomCode As String) As String
@@ -1030,10 +1072,35 @@ Namespace Services
                     ex)
             End If
 
+            If ContainsAny(combined, "uq_orders_single_parent_per_room", "orders_room_id") AndAlso
+               ContainsAny(combined, "23505", "duplicate key", "unique constraint") Then
+                Return New FriendsOrderException(
+                    FriendsOrderErrorKind.ParentOrderConflict,
+                    "Order induk untuk room ini sudah dibuat oleh anggota lain.",
+                    ex)
+            End If
+
             If ContainsAny(combined, "23505", "duplicate key", "order_rooms_room_code_key") Then
                 Return New FriendsOrderException(
                     FriendsOrderErrorKind.CodeCollision,
                     "Kode room sudah digunakan. Silakan coba kode lain.",
+                    ex)
+            End If
+
+            If ContainsAny(combined,
+                           "currently unavailable",
+                           "does not belong to the selected menu item",
+                           "is no longer available",
+                           "does not support customization",
+                           "Invalid item quantity",
+                           "Invalid option_id",
+                           "Duplicate option_id",
+                           "Multiple options selected",
+                           "Menu item not found",
+                           "Menu option") Then
+                Return New FriendsOrderException(
+                    FriendsOrderErrorKind.PricingValidationFailed,
+                    "Validasi menu/opsi ditolak oleh server: " & If(String.IsNullOrWhiteSpace(raw), "periksa ketersediaan menu dan opsi lalu muat ulang.", raw),
                     ex)
             End If
 

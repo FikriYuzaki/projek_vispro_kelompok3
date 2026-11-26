@@ -72,6 +72,7 @@ Namespace Features
         Private _realtimeSubscription As FriendsRoomRealtimeSubscription
         Private _realtimeSubscribedRoomId As String = String.Empty
         Private _realtimeSubscribedOrderId As String = String.Empty
+        Private _realtimeSubscribeVersion As Integer
         Private _realtimeDebounceTimer As Timer
 
         Public Sub New()
@@ -414,8 +415,10 @@ Namespace Features
                     AppTheme.ApplyStatusTag(_realtimeStatusTag, "Realtime: Aktif", AppTheme.SageTint, AppTheme.SageText)
                 Case FriendsRoomRealtimeState.Connecting, FriendsRoomRealtimeState.Reconnecting
                     AppTheme.ApplyStatusTag(_realtimeStatusTag, "Realtime: Menyambung...", AppTheme.WarningTint, AppTheme.WarningText)
+                Case FriendsRoomRealtimeState.PublicationUnavailable
+                    AppTheme.ApplyStatusTag(_realtimeStatusTag, "Realtime: Tidak Tersedia", AppTheme.WarningTint, AppTheme.WarningText)
                 Case FriendsRoomRealtimeState.[Error]
-                    AppTheme.ApplyStatusTag(_realtimeStatusTag, "Realtime: Gangguan", AppTheme.ErrorTint, AppTheme.ErrorText)
+                    AppTheme.ApplyStatusTag(_realtimeStatusTag, "Realtime: Tidak Tersedia", AppTheme.ErrorTint, AppTheme.ErrorText)
                 Case Else
                     AppTheme.ApplyStatusTag(_realtimeStatusTag, "Realtime: Manual", AppTheme.TaupeTint, AppTheme.TaupeText)
             End Select
@@ -1208,7 +1211,9 @@ Namespace Features
                 Return
             End If
 
-            DisposeRealtimeSubscription()
+            ' Increment version before awaiting so overlapping calls never leave duplicate subscriptions alive.
+            Dim subVersion = Threading.Interlocked.Increment(_realtimeSubscribeVersion)
+            DisposeRealtimeSubscription(incrementVersion:=False)
             _realtimeSubscribedRoomId = roomId
             _realtimeSubscribedOrderId = orderId
 
@@ -1220,17 +1225,25 @@ Namespace Features
                         ScheduleRealtimeRefresh()
                     End Sub,
                     Sub(state, detail)
+                        If subVersion <> _realtimeSubscribeVersion Then Return
                         SetRealtimeStatus(state, detail)
                     End Sub)
 
-                If IsDisposed OrElse Not String.Equals(_selectedRoomId, roomId, StringComparison.OrdinalIgnoreCase) Then
+                If IsDisposed OrElse
+                   subVersion <> _realtimeSubscribeVersion OrElse
+                   Not String.Equals(_selectedRoomId, roomId, StringComparison.OrdinalIgnoreCase) Then
                     subRef?.Dispose()
                     Return
                 End If
 
                 _realtimeSubscription = subRef
             Catch ex As Exception
-                SetRealtimeStatus(FriendsRoomRealtimeState.[Error], "Realtime tidak tersedia: " & ex.Message & " Gunakan Muat Ulang.")
+                If subVersion <> _realtimeSubscribeVersion Then Return
+                _realtimeSubscribedRoomId = String.Empty
+                _realtimeSubscribedOrderId = String.Empty
+                SetRealtimeStatus(
+                    FriendsRoomRealtimeState.PublicationUnavailable,
+                    "Realtime tidak tersedia (publikasi belum aktif atau koneksi gagal): " & ex.Message & " Gunakan tombol Muat Ulang.")
             End Try
         End Sub
 
@@ -1262,7 +1275,10 @@ Namespace Features
             End Try
         End Sub
 
-        Private Sub DisposeRealtimeSubscription()
+        Private Sub DisposeRealtimeSubscription(Optional incrementVersion As Boolean = True)
+            If incrementVersion Then
+                Threading.Interlocked.Increment(_realtimeSubscribeVersion)
+            End If
             If _realtimeDebounceTimer IsNot Nothing Then
                 _realtimeDebounceTimer.Stop()
             End If

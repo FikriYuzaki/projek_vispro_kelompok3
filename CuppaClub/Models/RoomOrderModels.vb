@@ -21,6 +21,8 @@ Namespace Models
         RlsBlocked = 11
         NetworkError = 12
         CodeCollision = 13
+        ParentOrderConflict = 14
+        PricingValidationFailed = 15
     End Enum
 
     Public NotInheritable Class FriendsOrderException
