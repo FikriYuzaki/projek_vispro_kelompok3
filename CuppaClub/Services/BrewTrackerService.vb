@@ -148,9 +148,9 @@ Namespace Services
 
         ' 1. Mengambil semua order yang dapat diakses user
         Public Shared Async Function GetOrdersAsync() As Task(Of List(Of Models.BrewOrder))
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
-            Dim response = Await client.From(Of Models.BrewOrder)().Get()
+            Dim response = Await client.From(Of Models.BrewOrder)().Get().WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function

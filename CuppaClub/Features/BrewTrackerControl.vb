@@ -126,6 +126,15 @@ Namespace Features
                 If Not _isDisposed AndAlso Me.Visible Then
                     Await EnsureRealtimeSubscriptionAsync()
                 End If
+            Catch ex As Exception
+                If Not _isDisposed Then
+                    ShowState(
+                        "Tracker gagal dimuat. Silakan coba Refresh.",
+                        False,
+                        _errorTint,
+                        _errorText
+                    )
+                End If
             Finally
                 _initialLiveSetupPending = False
             End Try
@@ -704,6 +713,7 @@ Namespace Features
             _loadVersion += 1
 
             Dim currentLoadVersion As Integer = _loadVersion
+            Dim loadResolved As Boolean = False
 
             If Not isBackground OrElse _orders.Count = 0 Then
                 _refreshButton.Enabled = False
@@ -723,14 +733,18 @@ Namespace Features
                 Dim fetchError As Exception = Nothing
 
                 Try
-                    result = Await BrewTrackerService.GetOrdersAsync().ConfigureAwait(False)
+                    result = Await BrewTrackerService.GetOrdersAsync()
                 Catch ex As Exception
                     fetchError = ex
                 End Try
 
                 Await EnsureUiThreadAsync()
 
-                If _isDisposed OrElse Me.InvokeRequired OrElse currentLoadVersion <> _loadVersion Then
+                If _isDisposed Then
+                    Return
+                End If
+
+                If Me.InvokeRequired OrElse currentLoadVersion <> _loadVersion Then
                     Return
                 End If
 
@@ -768,6 +782,7 @@ Namespace Features
                         End If
                     End If
 
+                    loadResolved = True
                     Return
                 End If
 
@@ -792,6 +807,7 @@ Namespace Features
                 UpdateLastUpdatedLabel()
 
                 HideState()
+                loadResolved = True
 
                 If AppSession.IsStaff Then
 
@@ -877,6 +893,9 @@ Namespace Features
 
                 End If
 
+            Catch ex As Exception
+                ' Pastikan recovery di Finally menangani error tak terduga.
+                loadResolved = False
             Finally
 
                 If Not _isDisposed Then
@@ -909,9 +928,40 @@ Namespace Features
                     End If
                 End If
 
+                ' Jaring pengaman: banner "Mengambil data pesanan..." tidak boleh tertinggal.
+                If Not _isDisposed AndAlso Not loadResolved Then
+                    Dim unresolvedVersion As Integer = currentLoadVersion
+                    MarshalToUi(
+                        Sub()
+                            RecoverUnresolvedLoadState(unresolvedVersion)
+                        End Sub
+                    )
+                End If
+
             End Try
 
         End Function
+
+        Private Async Sub RecoverUnresolvedLoadState(failedLoadVersion As Integer)
+
+            If _isDisposed Then Return
+
+            If failedLoadVersion = _loadVersion Then
+                ShowState(
+                    "Data pesanan belum dapat ditampilkan. Tekan Refresh untuk mencoba lagi.",
+                    False,
+                    _errorTint,
+                    _errorText
+                )
+                Return
+            End If
+
+            ' Hasil refresh ini sudah usang. Pastikan ada refresh pengganti yang menyelesaikan banner.
+            If Not _isLoading AndAlso Not _pendingBackgroundRefresh Then
+                Await RefreshDataAsync(False)
+            End If
+
+        End Sub
 
         Private Async Sub RefreshButton_Click(
             sender As Object,
