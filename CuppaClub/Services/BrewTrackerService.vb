@@ -146,11 +146,17 @@ Namespace Services
 
     Public Class BrewTrackerService
 
+        ' Token pembatalan 15 detik: request HTTP benar-benar dihentikan saat timeout,
+        ' tidak hanya berhenti ditunggu oleh WaitAsync.
+        Private Shared Function TimeoutToken() As System.Threading.CancellationToken
+            Return New System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15)).Token
+        End Function
+
         ' 1. Mengambil semua order yang dapat diakses user
         Public Shared Async Function GetOrdersAsync() As Task(Of List(Of Models.BrewOrder))
             Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
-            Dim response = Await client.From(Of Models.BrewOrder)().Get().WaitAsync(TimeSpan.FromSeconds(15))
+            Dim response = Await client.From(Of Models.BrewOrder)().Get(TimeoutToken()).WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function
@@ -162,7 +168,7 @@ Namespace Services
 
             Dim response = Await client.From(Of Models.BrewOrderItem)().
                 Filter("order_id", Constants.Operator.Equals, orderId).
-                Get().
+                Get(TimeoutToken()).
                 WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
@@ -176,7 +182,7 @@ Namespace Services
             Dim response = Await client.From(Of Models.BrewOrderStatusHistory)().
                 Filter("order_id", Constants.Operator.Equals, orderId).
                 Order("changed_at", Constants.Ordering.Descending).
-                Get().
+                Get(TimeoutToken()).
                 WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
@@ -216,7 +222,7 @@ Namespace Services
             ' Ambil order untuk mengecek status saat ini
             Dim currentResponse = Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
-                Get().
+                Get(TimeoutToken()).
                 WaitAsync(TimeSpan.FromSeconds(15))
 
             Dim currentOrder = currentResponse.Models.FirstOrDefault()
@@ -244,7 +250,7 @@ Namespace Services
                 Filter("id", Constants.Operator.Equals, orderId).
                 Filter("status", Constants.Operator.Equals, expectedStatus).
                 Set(Function(orderItem) CObj(orderItem.Status), newStatus).
-                Update().
+                Update(Nothing, TimeoutToken()).
                 WaitAsync(TimeSpan.FromSeconds(15))
 
             If updateResponse.Models.Count > 0 Then Return
@@ -252,7 +258,7 @@ Namespace Services
             ' Tidak ada baris yang berubah. Baca ulang status terbaru untuk menentukan penyebabnya.
             Dim verifyResponse = Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
-                Get().
+                Get(TimeoutToken()).
                 WaitAsync(TimeSpan.FromSeconds(15))
 
             Dim latestOrder = verifyResponse.Models.FirstOrDefault()
