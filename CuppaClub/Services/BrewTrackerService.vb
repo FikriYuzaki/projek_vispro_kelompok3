@@ -205,10 +205,6 @@ Namespace Services
 
             End Select
 
-            Throw New InvalidOperationException(
-                "Status tidak berubah. Akun ini mungkin tidak punya akses untuk mengubah order ini."
-            )
-
         End Function
 
 

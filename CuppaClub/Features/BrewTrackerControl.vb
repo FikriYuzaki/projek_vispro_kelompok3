@@ -715,19 +715,19 @@ Namespace Features
             Dim currentLoadVersion As Integer = _loadVersion
             Dim loadResolved As Boolean = False
 
-            If Not isBackground OrElse _orders.Count = 0 Then
-                _refreshButton.Enabled = False
-                _refreshButton.Text = "Refreshing..."
-
-                ShowState(
-                    "Mengambil data pesanan...",
-                    True,
-                    _warningTint,
-                    _warningText
-                )
-            End If
-
             Try
+
+                If Not isBackground OrElse _orders.Count = 0 Then
+                    _refreshButton.Enabled = False
+                    _refreshButton.Text = "Refreshing..."
+
+                    ShowState(
+                        "Mengambil data pesanan...",
+                        True,
+                        _warningTint,
+                        _warningText
+                    )
+                End If
 
                 Dim result As List(Of BrewOrder) = Nothing
                 Dim fetchError As Exception = Nothing
@@ -736,6 +736,7 @@ Namespace Features
                     result = Await BrewTrackerService.GetOrdersAsync()
                 Catch ex As Exception
                     fetchError = ex
+                    System.Diagnostics.Debug.WriteLine("[BrewTracker] GetOrdersAsync gagal: " & ex.ToString())
                 End Try
 
                 Await EnsureUiThreadAsync()
@@ -895,6 +896,7 @@ Namespace Features
 
             Catch ex As Exception
                 ' Pastikan recovery di Finally menangani error tak terduga.
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] RefreshDataAsync error tak terduga: " & ex.ToString())
                 loadResolved = False
             Finally
 
@@ -932,8 +934,12 @@ Namespace Features
                 If Not _isDisposed AndAlso Not loadResolved Then
                     Dim unresolvedVersion As Integer = currentLoadVersion
                     MarshalToUi(
-                        Sub()
-                            RecoverUnresolvedLoadState(unresolvedVersion)
+                        Async Sub()
+                            Try
+                                Await RecoverUnresolvedLoadState(unresolvedVersion)
+                            Catch ex As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] RecoverUnresolvedLoadState gagal: " & ex.ToString())
+                            End Try
                         End Sub
                     )
                 End If
@@ -942,7 +948,7 @@ Namespace Features
 
         End Function
 
-        Private Async Sub RecoverUnresolvedLoadState(failedLoadVersion As Integer)
+        Private Async Function RecoverUnresolvedLoadState(failedLoadVersion As Integer) As Task
 
             If _isDisposed Then Return
 
@@ -961,7 +967,7 @@ Namespace Features
                 Await RefreshDataAsync(False)
             End If
 
-        End Sub
+        End Function
 
         Private Async Sub RefreshButton_Click(
             sender As Object,
