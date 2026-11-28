@@ -146,11 +146,17 @@ Namespace Services
 
     Public Class BrewTrackerService
 
+        ' Token pembatalan 15 detik: request HTTP benar-benar dihentikan saat timeout,
+        ' tidak hanya berhenti ditunggu oleh WaitAsync.
+        Private Shared Function TimeoutToken() As System.Threading.CancellationToken
+            Return New System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15)).Token
+        End Function
+
         ' 1. Mengambil semua order yang dapat diakses user
         Public Shared Async Function GetOrdersAsync() As Task(Of List(Of Models.BrewOrder))
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
-            Dim response = Await client.From(Of Models.BrewOrder)().Get()
+            Dim response = Await client.From(Of Models.BrewOrder)().Get(TimeoutToken()).WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function
@@ -158,11 +164,12 @@ Namespace Services
 
         ' 2. Mengambil item/menu berdasarkan ID order
         Public Shared Async Function GetOrderItemsAsync(orderId As String) As Task(Of List(Of Models.BrewOrderItem))
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
             Dim response = Await client.From(Of Models.BrewOrderItem)().
                 Filter("order_id", Constants.Operator.Equals, orderId).
-                Get()
+                Get(TimeoutToken()).
+                WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function
@@ -170,12 +177,13 @@ Namespace Services
 
         ' 3. Mengambil riwayat perubahan status order
         Public Shared Async Function GetOrderHistoryAsync(orderId As String) As Task(Of List(Of Models.BrewOrderStatusHistory))
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
             Dim response = Await client.From(Of Models.BrewOrderStatusHistory)().
                 Filter("order_id", Constants.Operator.Equals, orderId).
                 Order("changed_at", Constants.Ordering.Descending).
-                Get()
+                Get(TimeoutToken()).
+                WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function
@@ -209,12 +217,15 @@ Namespace Services
         ' 5. Mengubah status order
         Public Shared Async Function UpdateOrderStatusAsync(orderId As String, newStatus As String) As Task
 
-            ' Ambil order untuk mengecek status saat ini
-            Dim orders = Await GetOrdersAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
-            Dim currentOrder = orders.FirstOrDefault(
-                Function(orderItem) orderItem.Id = orderId
-            )
+            ' Ambil order untuk mengecek status saat ini
+            Dim currentResponse = Await client.From(Of Models.BrewOrder)().
+                Filter("id", Constants.Operator.Equals, orderId).
+                Get(TimeoutToken()).
+                WaitAsync(TimeSpan.FromSeconds(15))
+
+            Dim currentOrder = currentResponse.Models.FirstOrDefault()
 
             If currentOrder Is Nothing Then
                 Throw New InvalidOperationException(
@@ -231,13 +242,50 @@ Namespace Services
             End If
 
 
-            ' Update status ke Supabase
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            ' Update hanya jika status di database masih sama dengan yang dibaca tadi.
+            ' Kalau staff lain sudah mengubahnya, filter status tidak cocok dan tidak ada baris yang diubah.
+            Dim expectedStatus As String = currentOrder.Status
 
-            Await client.From(Of Models.BrewOrder)().
+            Dim updateResponse = Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
+                Filter("status", Constants.Operator.Equals, expectedStatus).
                 Set(Function(orderItem) CObj(orderItem.Status), newStatus).
-                Update()
+                Update(Nothing, TimeoutToken()).
+                WaitAsync(TimeSpan.FromSeconds(15))
+
+            If updateResponse.Models.Count > 0 Then Return
+
+            ' Tidak ada baris yang berubah. Baca ulang status terbaru untuk menentukan penyebabnya.
+            Dim verifyResponse = Await client.From(Of Models.BrewOrder)().
+                Filter("id", Constants.Operator.Equals, orderId).
+                Get(TimeoutToken()).
+                WaitAsync(TimeSpan.FromSeconds(15))
+
+            Dim latestOrder = verifyResponse.Models.FirstOrDefault()
+
+            If latestOrder Is Nothing Then
+                Throw New InvalidOperationException(
+                    "Order tidak ditemukan atau tidak dapat diakses."
+                )
+            End If
+
+            ' 1. Status terbaru sudah sama dengan target: hasil akhir sudah tercapai.
+            If String.Equals(latestOrder.Status, newStatus, StringComparison.OrdinalIgnoreCase) Then
+                Return
+            End If
+
+            ' 2. Status berubah ke nilai lain: konflik dengan staff lain.
+            If Not String.Equals(latestOrder.Status, expectedStatus, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException(
+                    "Status order sudah berubah menjadi " & latestOrder.Status &
+                    " karena staff lain. Silakan cek lalu ulangi."
+                )
+            End If
+
+            ' 3. Status masih sama seperti awal: update ditolak (mis. tidak punya izin).
+            Throw New InvalidOperationException(
+                "Status tidak berubah. Akun ini mungkin tidak punya izin untuk mengubah order ini."
+            )
 
         End Function
 

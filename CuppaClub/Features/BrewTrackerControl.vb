@@ -113,23 +113,36 @@ Namespace Features
             sender As Object,
             e As EventArgs
         )
-
-            If _isDisposed OrElse LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then Return
-
-            _hasLoaded = True
-            _initialLiveSetupPending = True
-            PositionHeaderStatusLabel()
-
             Try
-                Await RefreshDataAsync(False)
 
-                If Not _isDisposed AndAlso Me.Visible Then
-                    Await EnsureRealtimeSubscriptionAsync()
-                End If
-            Finally
-                _initialLiveSetupPending = False
+                If _isDisposed OrElse LicenseManager.UsageMode = LicenseUsageMode.Designtime OrElse DesignMode Then Return
+
+                _hasLoaded = True
+                _initialLiveSetupPending = True
+                PositionHeaderStatusLabel()
+
+                Try
+                    Await RefreshDataAsync(False)
+
+                    If Not _isDisposed AndAlso Me.Visible Then
+                        Await EnsureRealtimeSubscriptionAsync()
+                    End If
+                Catch ex As Exception
+                    If Not _isDisposed Then
+                        ShowState(
+                            "Tracker gagal dimuat. Silakan coba Refresh.",
+                            False,
+                            _errorTint,
+                            _errorText
+                        )
+                    End If
+                Finally
+                    _initialLiveSetupPending = False
+                End Try
+
+            Catch unhandledEx As Exception
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] Control_Load error tak terduga: " & unhandledEx.ToString())
             End Try
-
         End Sub
 
         Private Sub SessionChanged(
@@ -159,15 +172,19 @@ Namespace Features
                 BeginInvoke(
                     New Action(
                         Async Sub()
-                            If _isDisposed Then Return
-                            If _isLoading Then
-                                _pendingBackgroundRefresh = True
-                            Else
-                                Await RefreshDataAsync(False)
-                            End If
-                            If Not _isDisposed AndAlso Me.Visible Then
-                                Await EnsureRealtimeSubscriptionAsync()
-                            End If
+                            Try
+                                If _isDisposed Then Return
+                                If _isLoading Then
+                                    _pendingBackgroundRefresh = True
+                                Else
+                                    Await RefreshDataAsync(False)
+                                End If
+                                If Not _isDisposed AndAlso Me.Visible Then
+                                    Await EnsureRealtimeSubscriptionAsync()
+                                End If
+                            Catch unhandledEx As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_170 error tak terduga: " & unhandledEx.ToString())
+                            End Try
                         End Sub
                     )
                 )
@@ -193,11 +210,15 @@ Namespace Features
                 BeginInvoke(
                     New Action(
                         Async Sub()
-                            If _isDisposed Then Return
-                            Await RefreshDataAsync(False)
-                            If Not _isDisposed AndAlso Me.Visible Then
-                                Await EnsureRealtimeSubscriptionAsync()
-                            End If
+                            Try
+                                If _isDisposed Then Return
+                                Await RefreshDataAsync(False)
+                                If Not _isDisposed AndAlso Me.Visible Then
+                                    Await EnsureRealtimeSubscriptionAsync()
+                                End If
+                            Catch unhandledEx As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_204 error tak terduga: " & unhandledEx.ToString())
+                            End Try
                         End Sub
                     )
                 )
@@ -209,43 +230,47 @@ Namespace Features
             sender As Object,
             e As EventArgs
         )
+            Try
 
-            If _isDisposed Then Return
+                If _isDisposed Then Return
 
-            If Not Me.Visible Then
-                If _hasLoaded Then
-                    _wasHiddenSinceLoad = True
-                End If
-                StopLiveUpdateTimers()
-                UpdateLastUpdatedLabel()
-                Return
-            End If
-
-            PositionHeaderStatusLabel()
-
-            If _hasLoaded AndAlso Not _initialLiveSetupPending Then
-                Dim shouldRefreshOnResume As Boolean = _wasHiddenSinceLoad OrElse _hasPendingRefreshWhileHidden
-                _wasHiddenSinceLoad = False
-                _hasPendingRefreshWhileHidden = False
-
-                If _realtimeState <> BrewRealtimeConnectionState.Connected AndAlso
-                   SupabaseClientProvider.IsConfigured Then
-                    StartFallbackPollingIfNeeded()
-                    If Not _realtimeUnavailableOnServer Then
-                        Await EnsureRealtimeSubscriptionAsync()
+                If Not Me.Visible Then
+                    If _hasLoaded Then
+                        _wasHiddenSinceLoad = True
                     End If
-                Else
+                    StopLiveUpdateTimers()
                     UpdateLastUpdatedLabel()
+                    Return
                 End If
 
-                If shouldRefreshOnResume AndAlso Not _isDisposed AndAlso Me.Visible Then
-                    If _realtimeDebounceTimer IsNot Nothing Then
-                        _realtimeDebounceTimer.Stop()
+                PositionHeaderStatusLabel()
+
+                If _hasLoaded AndAlso Not _initialLiveSetupPending Then
+                    Dim shouldRefreshOnResume As Boolean = _wasHiddenSinceLoad OrElse _hasPendingRefreshWhileHidden
+                    _wasHiddenSinceLoad = False
+                    _hasPendingRefreshWhileHidden = False
+
+                    If _realtimeState <> BrewRealtimeConnectionState.Connected AndAlso
+                       SupabaseClientProvider.IsConfigured Then
+                        StartFallbackPollingIfNeeded()
+                        If Not _realtimeUnavailableOnServer Then
+                            Await EnsureRealtimeSubscriptionAsync()
+                        End If
+                    Else
+                        UpdateLastUpdatedLabel()
                     End If
-                    Await RefreshDataAsync(True)
-                End If
-            End If
 
+                    If shouldRefreshOnResume AndAlso Not _isDisposed AndAlso Me.Visible Then
+                        If _realtimeDebounceTimer IsNot Nothing Then
+                            _realtimeDebounceTimer.Stop()
+                        End If
+                        Await RefreshDataAsync(True)
+                    End If
+                End If
+
+            Catch unhandledEx As Exception
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] Control_VisibleChanged error tak terduga: " & unhandledEx.ToString())
+            End Try
         End Sub
 
         Private Sub HeaderPanel_Resize(
@@ -420,7 +445,7 @@ Namespace Features
                     Await BrewTrackerService.SubscribeOrdersAsync(
                         AddressOf HandleRealtimeOrderChanged,
                         AddressOf HandleRealtimeStateChanged
-                    ).ConfigureAwait(False)
+                    )
             Catch ex As Exception
                 subscribeError = ex
             End Try
@@ -435,6 +460,18 @@ Namespace Features
                         subscription.Dispose()
                     Catch
                     End Try
+                End If
+                If Not _isDisposed Then
+                    ' Sesi berubah saat koneksi berjalan: sambungkan ulang dengan sesi terbaru.
+                    MarshalToUi(
+                        Async Sub()
+                            Try
+                                Await EnsureRealtimeSubscriptionAsync()
+                            Catch ex As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] Sambung ulang realtime gagal: " & ex.ToString())
+                            End Try
+                        End Sub
+                    )
                 End If
                 Return
             End If
@@ -580,47 +617,59 @@ Namespace Features
             sender As Object,
             e As EventArgs
         )
+            Try
 
-            If _realtimeDebounceTimer IsNot Nothing Then
-                _realtimeDebounceTimer.Stop()
-            End If
+                If _realtimeDebounceTimer IsNot Nothing Then
+                    _realtimeDebounceTimer.Stop()
+                End If
 
-            If _isDisposed OrElse Not Me.Visible Then Return
+                If _isDisposed OrElse Not Me.Visible Then Return
 
-            Await RefreshDataAsync(True)
+                Await RefreshDataAsync(True)
 
+            Catch unhandledEx As Exception
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] RealtimeDebounceTimer_Tick error tak terduga: " & unhandledEx.ToString())
+            End Try
         End Sub
 
         Private Async Sub FallbackPollTimer_Tick(
             sender As Object,
             e As EventArgs
         )
+            Try
 
-            If _isDisposed OrElse Not Me.Visible Then Return
-            If _realtimeState = BrewRealtimeConnectionState.Connected Then
-                StopFallbackAndReconnectTimers()
-                UpdateLastUpdatedLabel()
-                Return
-            End If
+                If _isDisposed OrElse Not Me.Visible Then Return
+                If _realtimeState = BrewRealtimeConnectionState.Connected Then
+                    StopFallbackAndReconnectTimers()
+                    UpdateLastUpdatedLabel()
+                    Return
+                End If
 
-            Await RefreshDataAsync(True)
+                Await RefreshDataAsync(True)
 
+            Catch unhandledEx As Exception
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] FallbackPollTimer_Tick error tak terduga: " & unhandledEx.ToString())
+            End Try
         End Sub
 
         Private Async Sub ReconnectTimer_Tick(
             sender As Object,
             e As EventArgs
         )
+            Try
 
-            If _reconnectTimer IsNot Nothing Then
-                _reconnectTimer.Stop()
-            End If
+                If _reconnectTimer IsNot Nothing Then
+                    _reconnectTimer.Stop()
+                End If
 
-            If _isDisposed OrElse Not Me.Visible Then Return
-            If _realtimeState = BrewRealtimeConnectionState.Connected Then Return
+                If _isDisposed OrElse Not Me.Visible Then Return
+                If _realtimeState = BrewRealtimeConnectionState.Connected Then Return
 
-            Await EnsureRealtimeSubscriptionAsync()
+                Await EnsureRealtimeSubscriptionAsync()
 
+            Catch unhandledEx As Exception
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] ReconnectTimer_Tick error tak terduga: " & unhandledEx.ToString())
+            End Try
         End Sub
 
         Private Sub UpdateLastUpdatedLabel()
@@ -704,33 +753,39 @@ Namespace Features
             _loadVersion += 1
 
             Dim currentLoadVersion As Integer = _loadVersion
-
-            If Not isBackground OrElse _orders.Count = 0 Then
-                _refreshButton.Enabled = False
-                _refreshButton.Text = "Refreshing..."
-
-                ShowState(
-                    "Mengambil data pesanan...",
-                    True,
-                    _warningTint,
-                    _warningText
-                )
-            End If
+            Dim loadResolved As Boolean = False
 
             Try
+
+                If Not isBackground OrElse _orders.Count = 0 Then
+                    _refreshButton.Enabled = False
+                    _refreshButton.Text = "Refreshing..."
+
+                    ShowState(
+                        "Mengambil data pesanan...",
+                        True,
+                        _warningTint,
+                        _warningText
+                    )
+                End If
 
                 Dim result As List(Of BrewOrder) = Nothing
                 Dim fetchError As Exception = Nothing
 
                 Try
-                    result = Await BrewTrackerService.GetOrdersAsync().ConfigureAwait(False)
+                    result = Await BrewTrackerService.GetOrdersAsync()
                 Catch ex As Exception
                     fetchError = ex
+                    System.Diagnostics.Debug.WriteLine("[BrewTracker] GetOrdersAsync gagal: " & ex.ToString())
                 End Try
 
                 Await EnsureUiThreadAsync()
 
-                If _isDisposed OrElse Me.InvokeRequired OrElse currentLoadVersion <> _loadVersion Then
+                If _isDisposed Then
+                    Return
+                End If
+
+                If Me.InvokeRequired OrElse currentLoadVersion <> _loadVersion Then
                     Return
                 End If
 
@@ -768,6 +823,7 @@ Namespace Features
                         End If
                     End If
 
+                    loadResolved = True
                     Return
                 End If
 
@@ -792,6 +848,7 @@ Namespace Features
                 UpdateLastUpdatedLabel()
 
                 HideState()
+                loadResolved = True
 
                 If AppSession.IsStaff Then
 
@@ -877,6 +934,10 @@ Namespace Features
 
                 End If
 
+            Catch ex As Exception
+                ' Pastikan recovery di Finally menangani error tak terduga.
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] RefreshDataAsync error tak terduga: " & ex.ToString())
+                loadResolved = False
             Finally
 
                 If Not _isDisposed Then
@@ -889,27 +950,70 @@ Namespace Features
                             _pendingBackgroundRefresh = False
                             MarshalToUi(
                                 Async Sub()
-                                    Await RefreshDataAsync(True)
+                                    Try
+                                        Await RefreshDataAsync(True)
+                                    Catch unhandledEx As Exception
+                                        System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_924 error tak terduga: " & unhandledEx.ToString())
+                                    End Try
                                 End Sub
                             )
                         End If
                     Else
                         MarshalToUi(
                             Async Sub()
-                                If _isDisposed Then Return
-                                _isLoading = False
-                                _refreshButton.Enabled = True
-                                _refreshButton.Text = "Refresh"
-                                If _pendingBackgroundRefresh Then
-                                    _pendingBackgroundRefresh = False
-                                    Await RefreshDataAsync(True)
-                                End If
+                                Try
+                                    If _isDisposed Then Return
+                                    _isLoading = False
+                                    _refreshButton.Enabled = True
+                                    _refreshButton.Text = "Refresh"
+                                    If _pendingBackgroundRefresh Then
+                                        _pendingBackgroundRefresh = False
+                                        Await RefreshDataAsync(True)
+                                    End If
+                                Catch unhandledEx As Exception
+                                    System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_931 error tak terduga: " & unhandledEx.ToString())
+                                End Try
                             End Sub
                         )
                     End If
                 End If
 
+                ' Jaring pengaman: banner "Mengambil data pesanan..." tidak boleh tertinggal.
+                If Not _isDisposed AndAlso Not loadResolved Then
+                    Dim unresolvedVersion As Integer = currentLoadVersion
+                    MarshalToUi(
+                        Async Sub()
+                            Try
+                                Await RecoverUnresolvedLoadState(unresolvedVersion)
+                            Catch ex As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] RecoverUnresolvedLoadState gagal: " & ex.ToString())
+                            End Try
+                        End Sub
+                    )
+                End If
+
             End Try
+
+        End Function
+
+        Private Async Function RecoverUnresolvedLoadState(failedLoadVersion As Integer) As Task
+
+            If _isDisposed Then Return
+
+            If failedLoadVersion = _loadVersion Then
+                ShowState(
+                    "Data pesanan belum dapat ditampilkan. Tekan Refresh untuk mencoba lagi.",
+                    False,
+                    _errorTint,
+                    _errorText
+                )
+                Return
+            End If
+
+            ' Hasil refresh ini sudah usang. Pastikan ada refresh pengganti yang menyelesaikan banner.
+            If Not _isLoading AndAlso Not _pendingBackgroundRefresh Then
+                Await RefreshDataAsync(False)
+            End If
 
         End Function
 
@@ -917,10 +1021,14 @@ Namespace Features
             sender As Object,
             e As EventArgs
         )
+            Try
 
-            ' Manual Refresh never creates a duplicate Realtime subscription.
-            Await RefreshDataAsync(False)
+                ' Manual Refresh never creates a duplicate Realtime subscription.
+                Await RefreshDataAsync(False)
 
+            Catch unhandledEx As Exception
+                System.Diagnostics.Debug.WriteLine("[BrewTracker] RefreshButton_Click error tak terduga: " & unhandledEx.ToString())
+            End Try
         End Sub
 
         ' =========================================================
@@ -971,20 +1079,7 @@ Namespace Features
 
                 AddHandler card.Click,
                     Async Sub(sender As Object, e As EventArgs)
-
-                        _customerDetailOrderId = capturedOrder.Id
-                        Await RenderOrderDetailAsync(
-                            capturedOrder,
-                            _customerContentPanel,
-                            True
-                        )
-
-                    End Sub
-
-                For Each child As Control In card.Controls
-
-                    AddHandler child.Click,
-                        Async Sub(sender As Object, e As EventArgs)
+                        Try
 
                             _customerDetailOrderId = capturedOrder.Id
                             Await RenderOrderDetailAsync(
@@ -993,6 +1088,27 @@ Namespace Features
                                 True
                             )
 
+                        Catch unhandledEx As Exception
+                            System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_1041 error tak terduga: " & unhandledEx.ToString())
+                        End Try
+                    End Sub
+
+                For Each child As Control In card.Controls
+
+                    AddHandler child.Click,
+                        Async Sub(sender As Object, e As EventArgs)
+                            Try
+
+                                _customerDetailOrderId = capturedOrder.Id
+                                Await RenderOrderDetailAsync(
+                                    capturedOrder,
+                                    _customerContentPanel,
+                                    True
+                                )
+
+                            Catch unhandledEx As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_1055 error tak terduga: " & unhandledEx.ToString())
+                            End Try
                         End Sub
 
                 Next
@@ -1038,21 +1154,7 @@ Namespace Features
 
                 AddHandler card.Click,
                     Async Sub(sender As Object, e As EventArgs)
-
-                        _selectedOrderId = order.Id
-
-                        Await RenderOrderDetailAsync(
-                            order,
-                            _detailContentPanel,
-                            False
-                        )
-
-                    End Sub
-
-                For Each child As Control In card.Controls
-
-                    AddHandler child.Click,
-                        Async Sub(sender As Object, e As EventArgs)
+                        Try
 
                             _selectedOrderId = order.Id
 
@@ -1062,6 +1164,28 @@ Namespace Features
                                 False
                             )
 
+                        Catch unhandledEx As Exception
+                            System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_1108 error tak terduga: " & unhandledEx.ToString())
+                        End Try
+                    End Sub
+
+                For Each child As Control In card.Controls
+
+                    AddHandler child.Click,
+                        Async Sub(sender As Object, e As EventArgs)
+                            Try
+
+                                _selectedOrderId = order.Id
+
+                                Await RenderOrderDetailAsync(
+                                    order,
+                                    _detailContentPanel,
+                                    False
+                                )
+
+                            Catch unhandledEx As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_1123 error tak terduga: " & unhandledEx.ToString())
+                            End Try
                         End Sub
 
                 Next
@@ -1188,6 +1312,11 @@ Namespace Features
 
             targetPanel.Controls.Add(detailLayout)
 
+            AddHandler detailLayout.SizeChanged,
+                Sub(sender As Object, e As EventArgs)
+                    FitDetailCardWidths(detailLayout)
+                End Sub
+
             If customerMode Then
 
                 Dim backButton As Button = CreateButton(
@@ -1219,15 +1348,16 @@ Namespace Features
             }
 
             detailLayout.Controls.Add(loadingLabel)
+            FitDetailCardWidths(detailLayout)
 
             Dim items As List(Of BrewOrderItem) = Nothing
             Dim history As List(Of BrewOrderStatusHistory) = Nothing
             Dim detailError As Exception = Nothing
 
             Try
-                items = Await BrewTrackerService.GetOrderItemsAsync(order.Id).ConfigureAwait(False)
+                items = Await BrewTrackerService.GetOrderItemsAsync(order.Id)
                 If Not _isDisposed AndAlso currentDetailVersion = _detailVersion Then
-                    history = Await BrewTrackerService.GetOrderHistoryAsync(order.Id).ConfigureAwait(False)
+                    history = Await BrewTrackerService.GetOrderHistoryAsync(order.Id)
                 End If
             Catch ex As Exception
                 detailError = ex
@@ -1252,6 +1382,7 @@ Namespace Features
                     "Detail gagal dimuat",
                     "Item atau riwayat pesanan gagal diambil. Coba refresh."
                 )
+                FitDetailCardWidths(detailLayout)
                 Return
             End If
 
@@ -1268,7 +1399,26 @@ Namespace Features
 
             End If
 
+            FitDetailCardWidths(detailLayout)
+
         End Function
+
+        Private Sub FitDetailCardWidths(layout As FlowLayoutPanel)
+            If layout Is Nothing OrElse layout.IsDisposed Then Return
+
+            Dim available As Integer =
+                layout.ClientSize.Width -
+                layout.Padding.Horizontal -
+                SystemInformation.VerticalScrollBarWidth
+
+            If available < 260 Then available = 260
+
+            For Each child As Control In layout.Controls
+                If TypeOf child Is Panel Then
+                    child.Width = available
+                End If
+            Next
+        End Sub
 
         Private Sub AddDetailHeader(
             target As FlowLayoutPanel,
@@ -1365,7 +1515,7 @@ Namespace Features
 
             Dim itemCard As New Panel With {
                 .BackColor = _surface,
-                .Height = 150,
+                .Height = 164,
                 .Padding = New Padding(12),
                 .Margin = New Padding(0, 0, 0, 8)
             }
@@ -1444,7 +1594,7 @@ Namespace Features
                 .Text = FormatCurrency(item.LineTotal),
                 .Font = New Font("Segoe UI", 9, FontStyle.Bold),
                 .ForeColor = _mocha,
-                .Location = New Point(12, 132)
+                .Location = New Point(12, 142)
             }
 
             itemCard.Controls.Add(nameLabel)
@@ -1767,13 +1917,17 @@ Namespace Features
 
             AddHandler updateButton.Click,
                 Async Sub(sender As Object, e As EventArgs)
+                    Try
 
-                    Await UpdateStatusAsync(
-                        order,
-                        nextStatus,
-                        updateButton
-                    )
+                        Await UpdateStatusAsync(
+                            order,
+                            nextStatus,
+                            updateButton
+                        )
 
+                    Catch unhandledEx As Exception
+                        System.Diagnostics.Debug.WriteLine("[BrewTracker] lambda_baris_1863 error tak terduga: " & unhandledEx.ToString())
+                    End Try
                 End Sub
 
             actionCard.Controls.Add(description)
@@ -1828,7 +1982,7 @@ Namespace Features
                 Await BrewTrackerService.UpdateOrderStatusAsync(
                     order.Id,
                     nextStatus
-                ).ConfigureAwait(False)
+                )
             Catch ex As Exception
                 updateError = ex
             End Try
@@ -1839,7 +1993,7 @@ Namespace Features
 
             If updateError IsNot Nothing Then
                 MessageBox.Show(
-                    "Status gagal diperbarui. Pastikan koneksi aktif dan status masih valid.",
+                    DescribeUpdateError(updateError),
                     "Gagal update",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning
@@ -1847,6 +2001,10 @@ Namespace Features
 
                 actionButton.Enabled = True
                 actionButton.Text = "Update ke " & DisplayStatus(nextStatus)
+
+                _selectedOrderId = order.Id
+
+                Await RefreshDataAsync(False)
                 Return
             End If
 
@@ -1860,6 +2018,24 @@ Namespace Features
             _selectedOrderId = order.Id
 
             Await RefreshDataAsync(False)
+
+        End Function
+
+        Private Shared Function DescribeUpdateError(ex As Exception) As String
+
+            If TypeOf ex Is TimeoutException OrElse TypeOf ex Is OperationCanceledException Then
+                Return "Server tidak merespons. Periksa koneksi lalu coba lagi. Data akan dimuat ulang."
+            End If
+
+            If TypeOf ex Is InvalidOperationException Then
+                Return ex.Message & " Data akan dimuat ulang."
+            End If
+
+            If ex.Message.IndexOf("Invalid order status transition", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                Return "Status order sudah berubah di sisi lain, jadi perubahan ini ditolak. Data akan dimuat ulang."
+            End If
+
+            Return "Status gagal diperbarui. Pastikan koneksi aktif lalu coba lagi. Data akan dimuat ulang."
 
         End Function
 

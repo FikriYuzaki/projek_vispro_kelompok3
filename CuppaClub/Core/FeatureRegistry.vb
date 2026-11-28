@@ -67,7 +67,8 @@ Namespace Core
                 .Id = "brew-tracker",
                 .DisplayName = "Live Brew Tracker",
                 .Owner = "Nita",
-                .Status = FeatureStatus.ComingSoon,
+                .Status = FeatureStatus.Available,
+                .CreateView = Function() New BrewTrackerControl(),
                 .Summary = "Pemantauan progres pesanan secara langsung dari Waiting, Preparing, Ready, hingga Completed lengkap dengan riwayat perubahan status.",
                 .PlannedItems = {
                     "Daftar pesanan aktif dan detail item",
