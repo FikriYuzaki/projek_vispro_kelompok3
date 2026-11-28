@@ -205,6 +205,10 @@ Namespace Services
 
             End Select
 
+            Throw New InvalidOperationException(
+                "Status tidak berubah. Akun ini mungkin tidak punya akses untuk mengubah order ini."
+            )
+
         End Function
 
 
@@ -236,25 +240,44 @@ Namespace Services
             End If
 
 
-            ' Update status ke Supabase
-            Await client.From(Of Models.BrewOrder)().
+            ' Update hanya jika status di database masih sama dengan yang dibaca tadi.
+            ' Kalau staff lain sudah mengubahnya, filter status tidak cocok dan tidak ada baris yang diubah.
+            Dim expectedStatus As String = currentOrder.Status
+
+            Dim updateResponse = Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
+                Filter("status", Constants.Operator.Equals, expectedStatus).
                 Set(Function(orderItem) CObj(orderItem.Status), newStatus).
                 Update().
                 WaitAsync(TimeSpan.FromSeconds(15))
 
-            ' RLS menolak update dengan membalas sukses tanpa baris, jadi hasilnya dicek ulang.
+            If updateResponse.Models.Count > 0 Then Return
+
+            ' Tidak ada baris yang berubah: bisa karena konflik dengan staff lain, atau RLS menolak update.
+            ' Baca ulang untuk membedakan keduanya dan menampilkan status terbaru.
             Dim verifyResponse = Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
                 Get().
                 WaitAsync(TimeSpan.FromSeconds(15))
 
-            Dim updatedOrder = verifyResponse.Models.FirstOrDefault()
+            Dim latestOrder = verifyResponse.Models.FirstOrDefault()
 
-            If updatedOrder Is Nothing OrElse
-               Not String.Equals(updatedOrder.Status, newStatus, StringComparison.OrdinalIgnoreCase) Then
+            If latestOrder Is Nothing Then
                 Throw New InvalidOperationException(
-                    "Status tidak berubah. Order mungkin sudah diubah staff lain, atau akun ini tidak punya akses."
+                    "Order tidak ditemukan atau tidak dapat diakses."
+                )
+            End If
+
+            If String.Equals(latestOrder.Status, newStatus, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException(
+                    "Order sudah diubah staff lain ke status yang sama. Data akan dimuat ulang."
+                )
+            End If
+
+            If Not String.Equals(latestOrder.Status, expectedStatus, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException(
+                    "Status order sudah berubah menjadi " & latestOrder.Status &
+                    " karena staff lain. Data akan dimuat ulang, silakan cek lalu ulangi."
                 )
             End If
 
