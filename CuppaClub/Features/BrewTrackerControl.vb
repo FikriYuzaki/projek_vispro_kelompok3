@@ -1238,6 +1238,11 @@ Namespace Features
 
             targetPanel.Controls.Add(detailLayout)
 
+            AddHandler detailLayout.SizeChanged,
+                Sub(sender As Object, e As EventArgs)
+                    FitDetailCardWidths(detailLayout)
+                End Sub
+
             If customerMode Then
 
                 Dim backButton As Button = CreateButton(
@@ -1269,15 +1274,16 @@ Namespace Features
             }
 
             detailLayout.Controls.Add(loadingLabel)
+            FitDetailCardWidths(detailLayout)
 
             Dim items As List(Of BrewOrderItem) = Nothing
             Dim history As List(Of BrewOrderStatusHistory) = Nothing
             Dim detailError As Exception = Nothing
 
             Try
-                items = Await BrewTrackerService.GetOrderItemsAsync(order.Id).ConfigureAwait(False)
+                items = Await BrewTrackerService.GetOrderItemsAsync(order.Id)
                 If Not _isDisposed AndAlso currentDetailVersion = _detailVersion Then
-                    history = Await BrewTrackerService.GetOrderHistoryAsync(order.Id).ConfigureAwait(False)
+                    history = Await BrewTrackerService.GetOrderHistoryAsync(order.Id)
                 End If
             Catch ex As Exception
                 detailError = ex
@@ -1302,6 +1308,7 @@ Namespace Features
                     "Detail gagal dimuat",
                     "Item atau riwayat pesanan gagal diambil. Coba refresh."
                 )
+                FitDetailCardWidths(detailLayout)
                 Return
             End If
 
@@ -1318,7 +1325,26 @@ Namespace Features
 
             End If
 
+            FitDetailCardWidths(detailLayout)
+
         End Function
+
+        Private Sub FitDetailCardWidths(layout As FlowLayoutPanel)
+            If layout Is Nothing OrElse layout.IsDisposed Then Return
+
+            Dim available As Integer =
+                layout.ClientSize.Width -
+                layout.Padding.Horizontal -
+                SystemInformation.VerticalScrollBarWidth
+
+            If available < 260 Then available = 260
+
+            For Each child As Control In layout.Controls
+                If TypeOf child Is Panel Then
+                    child.Width = available
+                End If
+            Next
+        End Sub
 
         Private Sub AddDetailHeader(
             target As FlowLayoutPanel,
@@ -1415,7 +1441,7 @@ Namespace Features
 
             Dim itemCard As New Panel With {
                 .BackColor = _surface,
-                .Height = 150,
+                .Height = 164,
                 .Padding = New Padding(12),
                 .Margin = New Padding(0, 0, 0, 8)
             }
@@ -1494,7 +1520,7 @@ Namespace Features
                 .Text = FormatCurrency(item.LineTotal),
                 .Font = New Font("Segoe UI", 9, FontStyle.Bold),
                 .ForeColor = _mocha,
-                .Location = New Point(12, 132)
+                .Location = New Point(12, 142)
             }
 
             itemCard.Controls.Add(nameLabel)
@@ -1878,7 +1904,7 @@ Namespace Features
                 Await BrewTrackerService.UpdateOrderStatusAsync(
                     order.Id,
                     nextStatus
-                ).ConfigureAwait(False)
+                )
             Catch ex As Exception
                 updateError = ex
             End Try
@@ -1889,7 +1915,7 @@ Namespace Features
 
             If updateError IsNot Nothing Then
                 MessageBox.Show(
-                    "Status gagal diperbarui. Pastikan koneksi aktif dan status masih valid.",
+                    DescribeUpdateError(updateError),
                     "Gagal update",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning
@@ -1897,6 +1923,10 @@ Namespace Features
 
                 actionButton.Enabled = True
                 actionButton.Text = "Update ke " & DisplayStatus(nextStatus)
+
+                _selectedOrderId = order.Id
+
+                Await RefreshDataAsync(False)
                 Return
             End If
 
@@ -1910,6 +1940,24 @@ Namespace Features
             _selectedOrderId = order.Id
 
             Await RefreshDataAsync(False)
+
+        End Function
+
+        Private Shared Function DescribeUpdateError(ex As Exception) As String
+
+            If TypeOf ex Is TimeoutException Then
+                Return "Server tidak merespons. Periksa koneksi lalu coba lagi. Data akan dimuat ulang."
+            End If
+
+            If TypeOf ex Is InvalidOperationException Then
+                Return ex.Message & " Data akan dimuat ulang."
+            End If
+
+            If ex.Message.IndexOf("Invalid order status transition", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                Return "Status order sudah berubah di sisi lain, jadi perubahan ini ditolak. Data akan dimuat ulang."
+            End If
+
+            Return "Status gagal diperbarui. Pastikan koneksi aktif lalu coba lagi. Data akan dimuat ulang."
 
         End Function
 

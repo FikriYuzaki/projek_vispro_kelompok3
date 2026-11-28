@@ -158,11 +158,12 @@ Namespace Services
 
         ' 2. Mengambil item/menu berdasarkan ID order
         Public Shared Async Function GetOrderItemsAsync(orderId As String) As Task(Of List(Of Models.BrewOrderItem))
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
             Dim response = Await client.From(Of Models.BrewOrderItem)().
                 Filter("order_id", Constants.Operator.Equals, orderId).
-                Get()
+                Get().
+                WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function
@@ -170,12 +171,13 @@ Namespace Services
 
         ' 3. Mengambil riwayat perubahan status order
         Public Shared Async Function GetOrderHistoryAsync(orderId As String) As Task(Of List(Of Models.BrewOrderStatusHistory))
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
             Dim response = Await client.From(Of Models.BrewOrderStatusHistory)().
                 Filter("order_id", Constants.Operator.Equals, orderId).
                 Order("changed_at", Constants.Ordering.Descending).
-                Get()
+                Get().
+                WaitAsync(TimeSpan.FromSeconds(15))
 
             Return response.Models
         End Function
@@ -209,12 +211,15 @@ Namespace Services
         ' 5. Mengubah status order
         Public Shared Async Function UpdateOrderStatusAsync(orderId As String, newStatus As String) As Task
 
-            ' Ambil order untuk mengecek status saat ini
-            Dim orders = Await GetOrdersAsync()
+            Dim client = Await SupabaseClientProvider.GetClientAsync().WaitAsync(TimeSpan.FromSeconds(15))
 
-            Dim currentOrder = orders.FirstOrDefault(
-                Function(orderItem) orderItem.Id = orderId
-            )
+            ' Ambil order untuk mengecek status saat ini
+            Dim currentResponse = Await client.From(Of Models.BrewOrder)().
+                Filter("id", Constants.Operator.Equals, orderId).
+                Get().
+                WaitAsync(TimeSpan.FromSeconds(15))
+
+            Dim currentOrder = currentResponse.Models.FirstOrDefault()
 
             If currentOrder Is Nothing Then
                 Throw New InvalidOperationException(
@@ -232,12 +237,26 @@ Namespace Services
 
 
             ' Update status ke Supabase
-            Dim client = Await SupabaseClientProvider.GetClientAsync()
-
             Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
                 Set(Function(orderItem) CObj(orderItem.Status), newStatus).
-                Update()
+                Update().
+                WaitAsync(TimeSpan.FromSeconds(15))
+
+            ' RLS menolak update dengan membalas sukses tanpa baris, jadi hasilnya dicek ulang.
+            Dim verifyResponse = Await client.From(Of Models.BrewOrder)().
+                Filter("id", Constants.Operator.Equals, orderId).
+                Get().
+                WaitAsync(TimeSpan.FromSeconds(15))
+
+            Dim updatedOrder = verifyResponse.Models.FirstOrDefault()
+
+            If updatedOrder Is Nothing OrElse
+               Not String.Equals(updatedOrder.Status, newStatus, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException(
+                    "Status tidak berubah. Order mungkin sudah diubah staff lain, atau akun ini tidak punya akses."
+                )
+            End If
 
         End Function
 
