@@ -429,7 +429,7 @@ Namespace Features
                     Await BrewTrackerService.SubscribeOrdersAsync(
                         AddressOf HandleRealtimeOrderChanged,
                         AddressOf HandleRealtimeStateChanged
-                    ).ConfigureAwait(False)
+                    )
             Catch ex As Exception
                 subscribeError = ex
             End Try
