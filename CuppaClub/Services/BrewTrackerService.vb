@@ -249,8 +249,7 @@ Namespace Services
 
             If updateResponse.Models.Count > 0 Then Return
 
-            ' Tidak ada baris yang berubah: bisa karena konflik dengan staff lain, atau RLS menolak update.
-            ' Baca ulang untuk membedakan keduanya dan menampilkan status terbaru.
+            ' Tidak ada baris yang berubah. Baca ulang status terbaru untuk menentukan penyebabnya.
             Dim verifyResponse = Await client.From(Of Models.BrewOrder)().
                 Filter("id", Constants.Operator.Equals, orderId).
                 Get().
@@ -264,18 +263,23 @@ Namespace Services
                 )
             End If
 
+            ' 1. Status terbaru sudah sama dengan target: hasil akhir sudah tercapai.
             If String.Equals(latestOrder.Status, newStatus, StringComparison.OrdinalIgnoreCase) Then
-                Throw New InvalidOperationException(
-                    "Order sudah diubah staff lain ke status yang sama. Data akan dimuat ulang."
-                )
+                Return
             End If
 
+            ' 2. Status berubah ke nilai lain: konflik dengan staff lain.
             If Not String.Equals(latestOrder.Status, expectedStatus, StringComparison.OrdinalIgnoreCase) Then
                 Throw New InvalidOperationException(
                     "Status order sudah berubah menjadi " & latestOrder.Status &
-                    " karena staff lain. Data akan dimuat ulang, silakan cek lalu ulangi."
+                    " karena staff lain. Silakan cek lalu ulangi."
                 )
             End If
+
+            ' 3. Status masih sama seperti awal: update ditolak (mis. tidak punya izin).
+            Throw New InvalidOperationException(
+                "Status tidak berubah. Akun ini mungkin tidak punya izin untuk mengubah order ini."
+            )
 
         End Function
 

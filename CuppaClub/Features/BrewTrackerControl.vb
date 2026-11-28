@@ -445,6 +445,18 @@ Namespace Features
                     Catch
                     End Try
                 End If
+                If Not _isDisposed Then
+                    ' Sesi berubah saat koneksi berjalan: sambungkan ulang dengan sesi terbaru.
+                    MarshalToUi(
+                        Async Sub()
+                            Try
+                                Await EnsureRealtimeSubscriptionAsync()
+                            Catch ex As Exception
+                                System.Diagnostics.Debug.WriteLine("[BrewTracker] Sambung ulang realtime gagal: " & ex.ToString())
+                            End Try
+                        End Sub
+                    )
+                End If
                 Return
             End If
 
